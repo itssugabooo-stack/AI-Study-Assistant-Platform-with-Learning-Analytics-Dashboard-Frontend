@@ -1,43 +1,13 @@
 import { useState } from 'react'
 import Logo from '../components/Logo'
-import { login, register } from '../services/api'
 
-function LoginPage({ initialMode, onBack, onLoginSuccess }) {
+function LoginPage({ initialMode, onBack, onLogin }) {
   const [mode, setMode] = useState(initialMode)
-  const [fullName, setFullName] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
   const isSignup = mode === 'signup'
 
-  async function handleSubmit(event) {
+  function handleSubmit(event) {
     event.preventDefault()
-    setError('')
-
-    if (isSignup && password !== confirmPassword) {
-      setError('Passwords must match.')
-      return
-    }
-
-    try {
-      setLoading(true)
-      const result = isSignup
-        ? await register(fullName, email, password)
-        : await login(email, password)
-
-      const token = result?.access_token
-      if (!token) {
-        throw new Error('Unable to authenticate. Please try again.')
-      }
-
-      onLoginSuccess(token)
-    } catch (err) {
-      setError(err.message || 'Unable to sign in.')
-    } finally {
-      setLoading(false)
-    }
+    onLogin()
   }
 
   return (
@@ -101,8 +71,7 @@ function LoginPage({ initialMode, onBack, onLoginSuccess }) {
                 <span>Full name</span>
                 <input
                   autoComplete="name"
-                  value={fullName}
-                  onChange={(event) => setFullName(event.target.value)}
+                  name="name"
                   placeholder="Your full name"
                   required
                   type="text"
@@ -114,8 +83,7 @@ function LoginPage({ initialMode, onBack, onLoginSuccess }) {
               <span>Email address</span>
               <input
                 autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                name="email"
                 placeholder="student@example.com"
                 required
                 type="email"
@@ -125,9 +93,8 @@ function LoginPage({ initialMode, onBack, onLoginSuccess }) {
             <label className="login-field">
               <span>Password</span>
               <input
-                autoComplete={isSignup ? 'new-password' : 'current-password'}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                name="password"
                 placeholder={isSignup ? 'Create a password' : 'Enter your password'}
                 required
                 type="password"
@@ -139,16 +106,13 @@ function LoginPage({ initialMode, onBack, onLoginSuccess }) {
                 <span>Confirm password</span>
                 <input
                   autoComplete="new-password"
-                  value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  name="confirmPassword"
                   placeholder="Enter your password again"
                   required
                   type="password"
                 />
               </label>
             )}
-
-            {error && <p className="form-error">{error}</p>}
 
             <div className="login-options">
               {isSignup ? (
@@ -158,8 +122,8 @@ function LoginPage({ initialMode, onBack, onLoginSuccess }) {
                   Forgot password?
                 </button>
               )}
-              <button className="login-submit-button" type="submit" disabled={loading}>
-                {loading ? 'Processing…' : isSignup ? 'Create account' : 'Login'}
+              <button className="login-submit-button" type="submit">
+                {isSignup ? 'Create account' : 'Login'}
               </button>
             </div>
           </form>
