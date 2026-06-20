@@ -1,7 +1,10 @@
 import Sidebar from "../components/Sidebar";
 function DocumentWorkspacePage({documentId, onNavigate}) {
+    cconst [document, setDocument] = useState(null)
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState('')
 
-    
+
     return (
         <div className="dashboard-layout">
             <Sidebar onNavigate={onNavigate} />
