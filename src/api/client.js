@@ -33,6 +33,10 @@ export async function apiGet(path) {
         },
 });
 
+if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`)
+}
+
 return response.json();
 }
 
@@ -45,5 +49,9 @@ export async function apiPost(path, data) {
     },
         body: JSON.stringify(data),
     });
+
+    if (!response.ok) {
+        throw new Error(`Request failed: ${response.status}`)
+    }
     return response.json();
 }

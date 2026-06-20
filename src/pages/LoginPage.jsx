@@ -40,7 +40,7 @@ function LoginPage({ initialMode, onBack, onLogin }) {
           }
 
           setError('Login failed. Please check your details.')
-        } catch (err) {
+        } catch {
           setLoading(false)
           setError('Something went wrong. Please try again.')
         }

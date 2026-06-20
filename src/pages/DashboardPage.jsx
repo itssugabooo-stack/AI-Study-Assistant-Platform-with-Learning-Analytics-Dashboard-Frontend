@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import Sidebar from '../components/Sidebar';
 import { getMyAnalytics } from '../api/analytics'
+import { getCurrentUser } from '../api/auth';
 
 
 function DashboardPage ({ onNavigate }) {
@@ -8,21 +9,37 @@ function DashboardPage ({ onNavigate }) {
   const [analytics, setAnalytics] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  useEffect(()=> {
-    async function loadAnalytics(
-    ){const data = await getMyAnalytics()
-      setAnalytics(data)
-      setLoading(false)
+  const [user, setUser] = useState(null)
+
+
+  useEffect(() => {
+    async function loadDashboardData() {
+      try {
+        const [userData, analyticsData] = await Promise.all([
+              getCurrentUser(),
+              getMyAnalytics(),
+            ])
+
+            setUser(userData)
+            setAnalytics(analyticsData)
+      } catch {
+        setError('Unable to load analytics.')
+      } finally {
+        setLoading(false)
+      }
     }
-    loadAnalytics()
-},[])
+
+  loadDashboardData()
+}, [])
 
   return (
     <div className ="dashboard-layout"> 
     <Sidebar onNavigate={onNavigate} />
     <main className= "dashboard-content">
       <h1>Dashboard</h1>
+      {user && <p> Welcome back, {user.full_name}!</p>}
       {loading && <p>Loading analytics...</p>}
+      {error && <p>{error}</p>}
       {analytics && (
       <section>
         <article>

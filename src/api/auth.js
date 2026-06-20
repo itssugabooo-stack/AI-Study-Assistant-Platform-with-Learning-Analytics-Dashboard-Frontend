@@ -1,4 +1,4 @@
-import API_BASE_URL ,{ apiPost, apiGet, setToken, removeToken } from './client'; //apiPost to send the email/password to the backend, then setToken to save the JWT token.
+import { apiPost, apiGet, setToken, removeToken } from './client' //apiPost to send the email/password to the backend, then setToken to save the JWT token.
 
 export async function loginUser(email, password) {
     const data = await apiPost ("/auth/login",{

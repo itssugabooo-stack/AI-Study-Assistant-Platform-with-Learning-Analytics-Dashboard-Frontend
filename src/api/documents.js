@@ -25,5 +25,11 @@ export async function uploadDocument(file) {
         body: formData,
     });
 
+    if (!response.ok) {
+        throw new Error('Upload failed' + response.status)
+    }
+
+
     return response.json();
+
 }
