@@ -17,6 +17,11 @@ export async function uploadDocument(file) {
     const formData = new FormData();
     formData.append("file", file);
     const token = getToken();
+
+    if (!token) {
+        throw new Error('Please login again before uploading.')
+    }
+
     const response = await fetch(`${API_BASE_URL}/documents/upload`, {
         method: "POST",
         headers: {
@@ -26,7 +31,16 @@ export async function uploadDocument(file) {
     });
 
     if (!response.ok) {
-        throw new Error('Upload failed' + response.status)
+        let message = `Upload failed: ${response.status}`
+
+        try {
+            const errorData = await response.json()
+            message = errorData.detail || message
+        } catch {
+            // Keep the status message when the backend does not return JSON.
+        }
+
+        throw new Error(message)
     }
 
 
