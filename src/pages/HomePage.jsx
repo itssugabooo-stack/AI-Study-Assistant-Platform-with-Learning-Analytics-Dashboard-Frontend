@@ -1,10 +1,26 @@
+import Logo from '../components/Logo'
+
 const benefits = [
-  'AI-generated study summaries',
-  'Automatic quiz creation',
-  'Interactive flashcards',
-  'Learning progress tracking',
-  'Performance analytics dashboard',
-  'Personalized learning support',
+  {
+    icon: '01',
+    title: 'Summaries faster',
+    description: 'Turn long PDFs into short study notes you can review quickly.',
+  },
+  {
+    icon: '02',
+    title: 'Practice from PDFs',
+    description: 'Generate flashcards and exams directly from uploaded documents.',
+  },
+  {
+    icon: '03',
+    title: 'Track your scores',
+    description: 'See quiz attempts, averages, and progress from your dashboard.',
+  },
+  {
+    icon: '04',
+    title: 'One study workspace',
+    description: 'Keep documents, AI tools, roadmap, and practice history together.',
+  },
 ]
 
 const features = [
@@ -105,9 +121,12 @@ function HomePage({ onGetStarted, onLogin }) {
         </div>
         <div className="benefit-grid">
           {benefits.map((benefit) => (
-            <article key={benefit}>
-              <span aria-hidden="true">&check;</span>
-              <p>{benefit}</p>
+            <article key={benefit.title}>
+              <span aria-hidden="true">{benefit.icon}</span>
+              <div>
+                <h3>{benefit.title}</h3>
+                <p>{benefit.description}</p>
+              </div>
             </article>
           ))}
         </div>
@@ -156,23 +175,23 @@ function HomePage({ onGetStarted, onLogin }) {
 
       <section className="home-section home-about" id="about">
         <div>
-          <p className="section-kicker">About us</p>
-          <h2>Built to improve the educational experience.</h2>
+          <p className="section-kicker">About StudyPilot</p>
+          <h2>A smarter workspace for studying from PDFs.</h2>
         </div>
         <div className="about-copy">
           <p>
-            StudyPilot was developed as a Computer Science Final Year Project. It
-            combines AI-powered content generation with learning analytics to
-            create a more engaging and personalized learning environment.
+            StudyPilot is an AI-powered learning assistant that helps students
+            upload PDF materials, generate study resources, practice with exams,
+            and track learning progress from one dashboard.
           </p>
           <div className="about-values">
             <article>
-              <h3>Our mission</h3>
-              <p>Empower students with intelligent, data-driven learning tools.</p>
+              <h3>What it does</h3>
+              <p>Creates summaries, flashcards, exams, roadmaps, and text previews.</p>
             </article>
             <article>
-              <h3>Our vision</h3>
-              <p>Help every student learn smarter and improve continuously.</p>
+              <h3>Why it helps</h3>
+              <p>Reduces study setup time so students can focus on understanding.</p>
             </article>
           </div>
         </div>
@@ -181,13 +200,13 @@ function HomePage({ onGetStarted, onLogin }) {
       <section className="home-section home-contact" id="contact">
         <div className="section-heading">
           <p className="section-kicker">Contact us</p>
-          <h2>Questions, suggestions, or feedback?</h2>
-          <p>Our support team is available Monday to Friday, 09:00 AM to 05:00 PM.</p>
+          <h2>Need help or want to share feedback?</h2>
+          <p>Contact the StudyPilot team for project questions, testing feedback, or improvement ideas.</p>
         </div>
         <div className="contact-grid">
           <a href="mailto:support@studypilot.com"><span>Email</span>support@studypilot.com</a>
-          <p><span>Phone</span>+66 XX XXX XXXX</p>
-          <p><span>Address</span>Faculty of Computer Science, Rangsit University, Thailand</p>
+          <p><span>Availability</span>Monday to Friday, 09:00 AM - 05:00 PM</p>
+          <p><span>Project</span>Computer Science Final Year Project</p>
         </div>
       </section>
 
@@ -216,4 +235,3 @@ function HomePage({ onGetStarted, onLogin }) {
 }
 
 export default HomePage
-import Logo from '../components/Logo'

@@ -6,7 +6,6 @@ const practiceNavItems = [
   { label: 'Overview', page: 'dashboard' },
   { label: 'My Library', page: 'library' },
   { label: 'Practice', page: 'practice' },
-  { label: 'AI Tutor', page: 'ai-tutor' },
   { label: 'Study Plan', page: 'study-plan' },
 ]
 
@@ -50,7 +49,7 @@ function getScoreClass(score) {
   return 'is-review'
 }
 
-function PracticePage({ onNavigate, onOpenDocument, onToggleTheme, theme }) {
+function PracticePage({ onNavigate, onOpenDocument, onToggleTheme, onLogout, theme }) {
   const [attempts, setAttempts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -156,6 +155,9 @@ function PracticePage({ onNavigate, onOpenDocument, onToggleTheme, theme }) {
           </button>
           <button type="button" onClick={() => onNavigate('library')}>
             Choose PDF
+          </button>
+          <button className="signout-button" type="button" onClick={onLogout}>
+            Logout
           </button>
         </div>
       </header>

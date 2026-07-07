@@ -7,13 +7,14 @@ import DashboardPage from './pages/DashboardPage'
 import DocumentsPage from './pages/DocumentsPage'
 import DocumentWorkspacePage from './pages/DocumentWorkspacePage'
 import PracticePage from './pages/PracticePage'
-import AITutorPage from './pages/AITutorPage'
 import StudyPlanPage from './pages/StudyPlanPage'
+import { logoutUser } from './api/auth'
 
 function App() {
   const [currentPage, setCurrentPage] = useState('home')
   const [authMode, setAuthMode] = useState('login')
   const [selectedDocumentId, setSelectedDocumentId] = useState(null)
+  const [selectedWorkspaceTool, setSelectedWorkspaceTool] = useState('tools')
   const [theme, setTheme] = useState(() => localStorage.getItem('studypilot-theme') || 'day')
 
   useEffect(() => {
@@ -30,9 +31,17 @@ function App() {
     setCurrentPage('login')
   }
 
-  function openDocument(documentId) {
+  function openDocument(documentId, initialTool = 'tools') {
     setSelectedDocumentId(documentId)
+    setSelectedWorkspaceTool(initialTool)
     setCurrentPage('document-workspace')
+  }
+
+  function handleLogout() {
+    logoutUser()
+    setSelectedDocumentId(null)
+    setSelectedWorkspaceTool('tools')
+    setCurrentPage('home')
   }
 
   return (
@@ -61,19 +70,21 @@ function App() {
 
       {currentPage === 'document-workspace' && (
         <DocumentWorkspacePage
+        key={`${selectedDocumentId}-${selectedWorkspaceTool}`}
         documentId={selectedDocumentId}
+        initialTool={selectedWorkspaceTool}
         onNavigate={setCurrentPage}
         onToggleTheme={toggleTheme}
+        onLogout={handleLogout}
         theme={theme}
         />
       )}
 
-      {currentPage === 'library' && <DocumentsPage onNavigate={setCurrentPage} onOpenDocument={openDocument} onToggleTheme={toggleTheme} theme={theme} />}
-      {currentPage === 'practice' && <PracticePage onNavigate={setCurrentPage} onOpenDocument={openDocument} onToggleTheme={toggleTheme} theme={theme} />}
-      {currentPage === 'ai-tutor' && <AITutorPage onNavigate={setCurrentPage} onOpenDocument={openDocument} onToggleTheme={toggleTheme} theme={theme} />}
-      {currentPage === 'study-plan' && <StudyPlanPage onNavigate={setCurrentPage} onOpenDocument={openDocument} onToggleTheme={toggleTheme} theme={theme} />}
+      {currentPage === 'library' && <DocumentsPage onNavigate={setCurrentPage} onOpenDocument={openDocument} onToggleTheme={toggleTheme} onLogout={handleLogout} theme={theme} />}
+      {currentPage === 'practice' && <PracticePage onNavigate={setCurrentPage} onOpenDocument={openDocument} onToggleTheme={toggleTheme} onLogout={handleLogout} theme={theme} />}
+      {currentPage === 'study-plan' && <StudyPlanPage onNavigate={setCurrentPage} onOpenDocument={openDocument} onToggleTheme={toggleTheme} onLogout={handleLogout} theme={theme} />}
       {currentPage === 'about' && <AboutPage />}
-      {currentPage === 'dashboard' && <DashboardPage onNavigate={setCurrentPage} onToggleTheme={toggleTheme} theme={theme} />}
+      {currentPage === 'dashboard' && <DashboardPage onNavigate={setCurrentPage} onToggleTheme={toggleTheme} onLogout={handleLogout} theme={theme} />}
     </>
   )
 }

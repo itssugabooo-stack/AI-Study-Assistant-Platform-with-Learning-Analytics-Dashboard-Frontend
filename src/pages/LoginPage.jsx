@@ -1,17 +1,20 @@
 import { useState } from 'react'
 import Logo from '../components/Logo'
-import { loginUser, registerUser} from '../api/auth'
+import { loginUser, registerUser } from '../api/auth'
 
 function LoginPage({ initialMode, onBack, onLogin }) {
   const [mode, setMode] = useState(initialMode)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const[fullName, setFullName] = useState('')
+  const [fullName, setFullName] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')  
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   
   const isSignup = mode === 'signup'
+  const submitLabel = loading
+    ? isSignup ? 'Creating account...' : 'Signing in...'
+    : isSignup ? 'Create account' : 'Sign in'
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -24,15 +27,14 @@ function LoginPage({ initialMode, onBack, onLogin }) {
 
         try {
           let result
+          const cleanEmail = email.trim()
 
           if (isSignup) {
-            await registerUser(email, fullName, password)
-            result = await loginUser(email, password)
+            await registerUser(cleanEmail, fullName.trim(), password)
+            result = await loginUser(cleanEmail, password)
           } else {
-            result = await loginUser(email, password)
+            result = await loginUser(cleanEmail, password)
           }
-
-          setLoading(false)
 
           if (result.access_token) {
             onLogin()
@@ -40,9 +42,10 @@ function LoginPage({ initialMode, onBack, onLogin }) {
           }
 
           setError('Login failed. Please check your details.')
-        } catch {
+        } catch (requestError) {
+          setError(requestError.message || 'Something went wrong. Please try again.')
+        } finally {
           setLoading(false)
-          setError('Something went wrong. Please try again.')
         }
       
       }  
@@ -65,7 +68,7 @@ function LoginPage({ initialMode, onBack, onLogin }) {
               onClick={() => setMode('login')}
               type="button"
             >
-              Login
+              Sign in
             </button>
             <button
               className={isSignup ? 'active' : ''}
@@ -77,28 +80,57 @@ function LoginPage({ initialMode, onBack, onLogin }) {
           </div>
 
           <div className="login-side-copy">
-            <p className="login-kicker">Learn with direction</p>
+            <p className="login-kicker">StudyPilot</p>
             <h2>
               {isSignup
-                ? 'Build better study habits from day one.'
-                : 'Your progress, ready when you are.'}
+                ? 'Start your focused study workspace.'
+                : 'Pick up where you left off.'}
             </h2>
+            <p>
+              Turn PDFs into summaries, flashcards, exams, and study plans without jumping between tools.
+            </p>
+            <ul className="login-benefit-list">
+              <li>PDF library</li>
+              <li>AI summary and flashcards</li>
+              <li>Practice score history</li>
+            </ul>
           </div>
         </aside>
 
         <div className="login-main-panel">
           <form className="login-form" onSubmit={handleSubmit}>
+            <div className="login-card-brand">
+              <Logo />
+            </div>
+
+            <div className="login-inline-switch">
+              <button
+                className={mode === 'login' ? 'active' : ''}
+                type="button"
+                onClick={() => setMode('login')}
+              >
+                Sign in
+              </button>
+              <button
+                className={isSignup ? 'active' : ''}
+                type="button"
+                onClick={() => setMode('signup')}
+              >
+                Sign up
+              </button>
+            </div>
+
             <div className="login-user-icon" aria-hidden="true">
               <span />
             </div>
 
             <div className="login-form-heading">
               <p className="login-kicker">{isSignup ? 'Get started' : 'Welcome back'}</p>
-              <h1>{isSignup ? 'Sign up' : 'Login'}</h1>
+              <h1>{isSignup ? 'Create account' : 'Welcome'}</h1>
               <p>
                 {isSignup
-                  ? 'Create your account and begin learning with direction.'
-                  : 'Sign in to continue your StudyPilot journey.'}
+                  ? 'Create your account to start using StudyPilot.'
+                  : 'Sign in to continue to your dashboard.'}
               </p>
             </div>
 
@@ -157,26 +189,30 @@ function LoginPage({ initialMode, onBack, onLogin }) {
                 />
               </label>
             )}
-      {error && <p className="form-error">{error}</p>}
+            {error && <p className="form-error">{error}</p>}
             <div className="login-options">
               {isSignup ? (
-                <p className="signup-terms">By joining, you agree to our terms.</p>
+                <p className="signup-terms">Your account will use the backend JWT auth flow.</p>
               ) : (
                 <button className="forgot-button" type="button">
                   Forgot password?
                 </button>
               )}
               <button className="login-submit-button" disabled={loading} type="submit">
-                {loading ? 'Processing...' : isSignup ? 'Create account' : 'Login'}
+                {submitLabel}
               </button>
             </div>
-          </form>
 
-          <div className="login-social-footer">
-            <span>Or {isSignup ? 'sign up' : 'login'} with</span>
-            <button type="button"><strong>G</strong> Google</button>
-            <button type="button"><strong>f</strong> Facebook</button>
-          </div>
+            <p className="login-switch-copy">
+              {isSignup ? 'Already have an account?' : 'New to StudyPilot?'}
+              <button
+                type="button"
+                onClick={() => setMode(isSignup ? 'login' : 'signup')}
+              >
+                {isSignup ? 'Sign in' : 'Create account'}
+              </button>
+            </p>
+          </form>
         </div>
       </section>
     </main>

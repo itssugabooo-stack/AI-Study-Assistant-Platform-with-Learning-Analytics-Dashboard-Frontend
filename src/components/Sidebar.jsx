@@ -1,9 +1,8 @@
 const navigationItems = [
-    { label: 'Overview', page: 'dashboard' },
+  { label: 'Overview', page: 'dashboard' },
   { label: 'My Library', page: 'library' },
   { label: 'Practice', page: 'practice' },
-  { label: 'AI Tutor', page: 'ai-tutor' },
-  { label: 'Study Plan', page: 'study-plan' },   
+  { label: 'Study Plan', page: 'study-plan' },
 ]
 function Sidebar({ onNavigate }) {
     return (

@@ -12,20 +12,24 @@ const tutorNavItems = [
 
 const tutorTools = [
   {
-    title: 'Summarize',
-    description: 'Turn long PDF content into a shorter study explanation.',
+    id: 'summary',
+    title: 'Summary',
+    description: 'Open a focused page to generate a shorter explanation from a PDF.',
   },
   {
+    id: 'flashcards',
     title: 'Flashcards',
-    description: 'Generate question and answer cards from your material.',
+    description: 'Open active recall cards with questions and answers.',
   },
   {
+    id: 'quiz',
     title: 'Quiz',
-    description: 'Practice with generated questions and check your score.',
+    description: 'Open generated quiz questions to test your understanding.',
   },
   {
+    id: 'roadmap',
     title: 'Roadmap',
-    description: 'Break the document into study steps you can follow.',
+    description: 'Open step-by-step study guidance for a document.',
   },
 ]
 
@@ -33,12 +37,13 @@ function AITutorPage({ onNavigate, onOpenDocument, onToggleTheme, theme }) {
   const [documents, setDocuments] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [selectedTool, setSelectedTool] = useState('summary')
 
   useEffect(() => {
     async function loadDocuments() {
       try {
         const data = await getDocuments()
-        setDocuments(data)
+        setDocuments(Array.isArray(data) ? data : data.documents ?? [])
       } catch (requestError) {
         setError(requestError.message)
       } finally {
@@ -48,6 +53,9 @@ function AITutorPage({ onNavigate, onOpenDocument, onToggleTheme, theme }) {
 
     loadDocuments()
   }, [])
+
+  const selectedToolInfo = tutorTools.find((tool) => tool.id === selectedTool)
+  const visibleDocuments = documents.slice(0, 3)
 
   return (
     <div className="ai-tutor-screen">
@@ -90,34 +98,38 @@ function AITutorPage({ onNavigate, onOpenDocument, onToggleTheme, theme }) {
         <section className="ai-tutor-hero">
           <div>
             <p className="dashboard-kicker">AI Tutor</p>
-            <h1>Choose a document and let StudyPilot guide your review.</h1>
+            <h1>Choose a study tool.</h1>
             <p>
-              Your AI tools are connected to each PDF. Open a document workspace to generate summaries,
-              flashcards, quizzes, and roadmaps from that material.
+              Pick Summary, Flashcards, Quiz, or Roadmap. Then choose a PDF and StudyPilot will open the right workspace page.
             </p>
           </div>
 
           <article>
-            <span>Available tools</span>
-            <strong>4</strong>
-            <p>Summary, flashcards, quiz, roadmap</p>
+            <span>Selected tool</span>
+            <strong>{selectedToolInfo?.title}</strong>
+            <p>{documents.length} PDFs available</p>
           </article>
         </section>
 
-        <section className="ai-tutor-tools-grid">
+        <section className="ai-tutor-tools-grid" aria-label="AI tutor tools">
           {tutorTools.map((tool) => (
-            <article key={tool.title}>
-              <h2>{tool.title}</h2>
+            <button
+              className={selectedTool === tool.id ? 'ai-tutor-tool-card active' : 'ai-tutor-tool-card'}
+              key={tool.id}
+              type="button"
+              onClick={() => setSelectedTool(tool.id)}
+            >
+              <span>{tool.title}</span>
               <p>{tool.description}</p>
-            </article>
+            </button>
           ))}
         </section>
 
         <section className="ai-tutor-document-panel">
           <header>
             <div>
-              <p className="dashboard-kicker">Start tutoring</p>
-              <h2>Select a PDF</h2>
+              <p className="dashboard-kicker">Open tool page</p>
+              <h2>Choose a PDF for {selectedToolInfo?.title}</h2>
             </div>
             <button type="button" onClick={() => onNavigate('library')}>
               Upload new PDF
@@ -137,22 +149,27 @@ function AITutorPage({ onNavigate, onOpenDocument, onToggleTheme, theme }) {
             </div>
           )}
 
-          {documents.length > 0 && (
-            <div className="ai-tutor-document-list">
-              {documents.map((document) => (
-                <article key={document.id}>
-                  <div>
-                    <span>{document.has_extracted_text ? 'Ready' : 'Processing'}</span>
-                    <h3>{document.original_filename}</h3>
-                    <p>Status: {document.processing_status}</p>
-                  </div>
+          {visibleDocuments.length > 0 && (
+            <>
+              <p className="ai-tutor-result-note">
+                Showing {visibleDocuments.length} of {documents.length} PDFs
+              </p>
+              <div className="ai-tutor-document-list">
+                {visibleDocuments.map((document) => (
+                  <article key={document.id}>
+                    <div>
+                      <span>{document.has_extracted_text ? 'Ready' : 'Processing'}</span>
+                      <h3>{document.original_filename}</h3>
+                      <p>Status: {document.processing_status}</p>
+                    </div>
 
-                  <button type="button" onClick={() => onOpenDocument(document.id)}>
-                    Open AI workspace
-                  </button>
-                </article>
-              ))}
-            </div>
+                    <button type="button" onClick={() => onOpenDocument(document.id, selectedTool)}>
+                      Open {selectedToolInfo?.title}
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </>
           )}
         </section>
       </main>

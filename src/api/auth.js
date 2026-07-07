@@ -1,10 +1,25 @@
-import { apiPost, apiGet, setToken, removeToken } from './client' //apiPost to send the email/password to the backend, then setToken to save the JWT token.
+import { apiPost, apiPostForm, apiGet, setToken, removeToken } from './client' //apiPost to send the email/password to the backend, then setToken to save the JWT token.
 
 export async function loginUser(email, password) {
-    const data = await apiPost ("/auth/login",{
-        email,
-        password,
-    });
+    removeToken();
+
+    let data;
+
+    try {
+        data = await apiPost("/auth/login", {
+            email,
+            password,
+        }, { auth: false });
+    } catch (jsonLoginError) {
+        try {
+            data = await apiPostForm("/auth/login", {
+                username: email,
+                password,
+            }, { auth: false });
+        } catch {
+            throw jsonLoginError;
+        }
+    }
 
     if (data.access_token) {
         setToken(data.access_token);
@@ -18,7 +33,7 @@ export async function registerUser(email, fullName, password)   {
         email,
         full_name: fullName,
         password,
-    });
+    }, { auth: false });
 }
 
 export async function getCurrentUser(){

@@ -7,11 +7,10 @@ const studyPlanNavItems = [
   { label: 'Overview', page: 'dashboard' },
   { label: 'My Library', page: 'library' },
   { label: 'Practice', page: 'practice' },
-  { label: 'AI Tutor', page: 'ai-tutor' },
   { label: 'Study Plan', page: 'study-plan' },
 ]
 
-function StudyPlanPage({ onNavigate, onOpenDocument, onToggleTheme, theme }) {
+function StudyPlanPage({ onNavigate, onOpenDocument, onToggleTheme, onLogout, theme }) {
   const [documents, setDocuments] = useState([])
   const [selectedDocumentId, setSelectedDocumentId] = useState('')
   const [roadmap, setRoadmap] = useState(null)
@@ -96,6 +95,9 @@ function StudyPlanPage({ onNavigate, onOpenDocument, onToggleTheme, theme }) {
           </button>
           <button type="button" onClick={() => onNavigate('library')}>
             Add PDF
+          </button>
+          <button className="signout-button" type="button" onClick={onLogout}>
+            Logout
           </button>
         </div>
       </header>
