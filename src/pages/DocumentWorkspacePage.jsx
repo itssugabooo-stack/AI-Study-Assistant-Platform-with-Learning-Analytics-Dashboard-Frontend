@@ -1,521 +1,318 @@
-import { useEffect, useState } from 'react'
-import Logo from '../components/Logo'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getDocument, getDocumentText } from '../api/documents'
 import { generateSummary, generateFlashcards, generateQuiz, generateRoadmap } from '../api/ai'
 import { submitQuizAttempt } from '../api/quizzes'
+import ResourceState from '../components/ResourceState'
+import RoadmapSteps from '../components/RoadmapSteps'
+import Skeleton from '../components/Skeleton'
+import RouteLink from '../components/RouteLink'
+import { documentPath, workspacePaths } from '../routes'
+import useResource from '../useResource'
+import ErrorPage from './ErrorPage'
 
-const workspaceNavItems = [
-  { label: 'Overview', page: 'dashboard' },
-  { label: 'My Library', page: 'library' },
-  { label: 'Practice', page: 'practice' },
-  { label: 'Study Plan', page: 'study-plan' },
+const tools = [
+  { id: 'summary', label: 'Summary', description: 'Turn the key ideas in this PDF into a concise set of notes.', generate: generateSummary },
+  { id: 'flashcards', label: 'Flashcards', description: 'Test your recall with questions and reveal each answer as you go.', generate: generateFlashcards },
+  { id: 'quiz', label: 'Quiz', description: 'Answer questions from this PDF and save your score to Practice.', generate: generateQuiz },
+  { id: 'roadmap', label: 'Roadmap', description: 'Get an ordered list of topics to review from this PDF.', generate: generateRoadmap },
 ]
 
-const workspaceToolTabs = ['tools', 'summary', 'flashcards', 'quiz', 'roadmap', 'text']
+function TextPreview({ data }) {
+  if (!data?.text?.trim()) return <p className="sp-muted">There’s no extracted text available for this PDF.</p>
 
-const workspaceTools = [
-  {
-    id: 'summary',
-    title: 'Summary',
-    description: 'Short form of the PDF so you can understand the main ideas fast.',
-    action: 'Start Summary',
-  },
-  {
-    id: 'flashcards',
-    title: 'Flashcards',
-    description: 'Question and answer cards for quick memory practice.',
-    action: 'Start Flashcards',
-  },
-  {
-    id: 'quiz',
-    title: 'Exam',
-    description: 'Take a generated quiz and save your score to practice history.',
-    action: 'Start Exam',
-  },
-  {
-    id: 'roadmap',
-    title: 'Roadmap',
-    description: 'Step-by-step study plan from this document.',
-    action: 'Start Roadmap',
-  },
-  {
-    id: 'text',
-    title: 'Text Preview',
-    description: 'Read the extracted PDF text that the backend found.',
-    action: 'View Text',
-  },
-]
+  return (
+    <>
+      {data.truncated && <p className="sp-muted">Showing a shortened preview.</p>}
+      <pre className="sp-reading">{data.text}</pre>
+    </>
+  )
+}
 
-function DocumentWorkspacePage({ documentId, initialTool = 'tools', onNavigate, onToggleTheme, onLogout, theme }) {
-  const [document, setDocument] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [documentText, setDocumentText] = useState(null)
-  const [summary, setSummary] = useState('')
-  const [summaryLoading, setSummaryLoading] = useState(false)
-  const [summaryError, setSummaryError] = useState('')
-  const [flashcards, setFlashcards] = useState([])
-  const [flashcardsLoading, setFlashcardsLoading] = useState(false)
-  const [flashcardsError, setFlashcardsError] = useState('')
-  const [quiz, setQuiz] = useState([])
-  const [quizLoading, setQuizLoading] = useState(false)
-  const [quizError, setQuizError] = useState('')
+function ExtractedText({ documentId }) {
+  const loadText = useCallback((options) => getDocumentText(documentId, options), [documentId])
+  const resource = useResource(loadText)
+
+  return (
+    <>
+      <ResourceState resource={resource} loading="Loading extracted text…" failure="The extracted text couldn’t be loaded." />
+      {resource.status === 'success' && <TextPreview data={resource.data} />}
+    </>
+  )
+}
+
+function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigate }) {
+  const loadDocument = useCallback((options) => getDocument(documentId, options), [documentId])
+  const documentResource = useResource(loadDocument)
+  const [extraction, setExtraction] = useState({ status: 'idle' })
+  const activeExtraction = useRef(null)
+  const document = documentResource.data ?? extraction.document
+  const textReady = document?.has_extracted_text || extraction.status === 'ready'
+  const extracting = extraction.status === 'loading'
+  const [resources, setResources] = useState({})
+  const [quizId, setQuizId] = useState(null)
   const [selectedQuizAnswers, setSelectedQuizAnswers] = useState({})
+  const [questionIndex, setQuestionIndex] = useState(0)
   const [quizSubmitLoading, setQuizSubmitLoading] = useState(false)
   const [quizSubmitError, setQuizSubmitError] = useState('')
   const [quizResult, setQuizResult] = useState(null)
-  const [roadmap, setRoadmap] = useState([])
-  const [roadmapLoading, setRoadmapLoading] = useState(false)
-  const [roadmapError, setRoadmapError] = useState('')
-  const [activeTab, setActiveTab] = useState(workspaceToolTabs.includes(initialTool) ? initialTool : 'tools')
-  const [visibleAnswers, setVisibleAnswers] = useState({})
+  const pending = useRef(new Set())
+  const questionHeading = useRef(null)
+  const resultHeading = useRef(null)
+  const toolHeading = useRef(null)
+  const focusToolHeading = useRef(false)
 
-  useEffect(() => {
-    async function loadDocument() {
-      try {
-        const [documentData, textData] = await Promise.all([
-          getDocument(documentId),
-          getDocumentText(documentId),
-        ])
+  const tool = tools.find(({ id }) => id === activeTool)
+  const viewingText = activeTool === 'text'
+  const textPreviewPath = documentPath(documentId, 'text')
+  const resource = resources[activeTool]
+  const quiz = resources.quiz?.data?.questions ?? []
+  const question = quiz[questionIndex]
+  const answeredCount = Object.keys(selectedQuizAnswers).length
+  const canSubmitQuiz = quizId != null && quiz.length > 0 && answeredCount === quiz.length
+    && !quizSubmitLoading && !quizResult
+  const showQuiz = activeTool === 'quiz' && resource?.status === 'success' && Boolean(question)
 
-        setDocument(documentData)
-        setDocumentText(textData)
-      } catch (requestError) {
-        setError(requestError.message)
-      } finally {
-        setLoading(false)
+  useEffect(() => () => activeExtraction.current?.abort(), [])
+
+  useLayoutEffect(() => {
+    if (showQuiz) (quizResult ? resultHeading : questionHeading).current?.focus()
+  }, [questionIndex, quizResult, showQuiz])
+
+  useLayoutEffect(() => {
+    if (!focusToolHeading.current) return
+    focusToolHeading.current = false
+    toolHeading.current?.focus()
+  }, [activeTool])
+
+  function focusTextPreview() {
+    if (viewingText) toolHeading.current?.focus()
+    else focusToolHeading.current = true
+  }
+
+  async function handleExtractText() {
+    if (textReady || activeExtraction.current) return
+    const controller = new AbortController()
+    activeExtraction.current = controller
+    setExtraction({ status: 'loading' })
+
+    try {
+      const data = await getDocumentText(documentId, { signal: controller.signal })
+      controller.signal.throwIfAborted()
+      if (typeof data?.text !== 'string') throw new Error('Invalid text response')
+
+      if (!data.text.trim()) {
+        setExtraction({ status: 'empty' })
+        return
       }
+
+      setExtraction({ status: 'ready', data, document })
+      documentResource.retry()
+    } catch {
+      if (!controller.signal.aborted) setExtraction({ status: 'error' })
+    } finally {
+      activeExtraction.current = null
     }
+  }
 
-    loadDocument()
-  }, [documentId])
-
-  async function handleGenerateSummary() {
-    setSummaryLoading(true)
-    setSummaryError('')
+  async function handleGenerate() {
+    if (!textReady || !tool?.generate || pending.current.has(activeTool)) return
+    const toolId = activeTool
+    pending.current.add(toolId)
+    setResources((previous) => ({ ...previous, [toolId]: { status: 'loading' } }))
 
     try {
-      const data = await generateSummary(documentId)
-      setSummary(data.summary)
-    } catch (requestError) {
-      setSummaryError(requestError.message)
+      const data = await tool.generate(documentId)
+      if (toolId === 'quiz') {
+        if (data.quiz_id == null || !Array.isArray(data.questions) || data.questions.length === 0
+          || data.questions.some((item) => typeof item.question !== 'string' || !Array.isArray(item.choices) || item.choices.length < 2)) {
+          throw new Error('This service didn’t return a quiz with scorable questions. Try generating it again.')
+        }
+        setQuizId(data.quiz_id)
+        setSelectedQuizAnswers({})
+        setQuestionIndex(0)
+        setQuizResult(null)
+        setQuizSubmitError('')
+      }
+      setResources((previous) => ({ ...previous, [toolId]: { status: 'success', data } }))
+    } catch (error) {
+      setResources((previous) => ({ ...previous, [toolId]: { status: 'error', error } }))
     } finally {
-      setSummaryLoading(false)
+      pending.current.delete(toolId)
     }
   }
 
-  async function handleGenerateFlashcards() {
-    setFlashcardsLoading(true)
-    setFlashcardsError('')
+  function handleSelectQuizAnswer(questionIndex, choiceIndex) {
+    if (quizResult || pending.current.has('submit')) return
 
-    try {
-      const data = await generateFlashcards(documentId)
-      setFlashcards(data.flashcards)
-    } catch (requestError) {
-      setFlashcardsError(requestError.message)
-    } finally {
-      setFlashcardsLoading(false)
-    }
-  }
-
-  async function handleGenerateQuiz() {
-    setQuizLoading(true)
-    setQuizError('')
-
-    try {
-      const data = await generateQuiz(documentId)
-      setQuiz(data.questions ?? [])
-      setSelectedQuizAnswers({})
-      setQuizResult(null)
-      setQuizSubmitError('')
-    } catch (requestError) {
-      setQuizError(requestError.message)
-    } finally {
-      setQuizLoading(false)
-    }
-  }
-
-  async function handleGenerateRoadmap() {
-    setRoadmapLoading(true)
-    setRoadmapError('')
-
-    try {
-      const data = await generateRoadmap(documentId)
-      setRoadmap(data.steps ?? [])
-    } catch (requestError) {
-      setRoadmapError(requestError.message)
-    } finally {
-      setRoadmapLoading(false)
-    }
-  }
-
-  function toggleAnswer(index) {
-    setVisibleAnswers((currentAnswers) => ({
-      ...currentAnswers,
-      [index]: !currentAnswers[index],
-    }))
-  }
-
-  function handleSelectQuizAnswer(questionIndex, answer) {
-    if (quizResult) {
-      return
-    }
-
-    setSelectedQuizAnswers((currentAnswers) => ({
-      ...currentAnswers,
-      [questionIndex]: answer,
+    setSelectedQuizAnswers((previous) => ({
+      ...previous,
+      [questionIndex]: choiceIndex,
     }))
   }
 
   async function handleSubmitExam() {
+    if (!canSubmitQuiz || pending.current.has('submit')) return
+    pending.current.add('submit')
     setQuizSubmitLoading(true)
     setQuizSubmitError('')
 
     try {
-      const answers = quiz.map((question, index) => ({
-        question: question.question,
-        selected_answer: selectedQuizAnswers[index] ?? '',
-        correct_answer: question.correct_answer,
+      const answers = quiz.map((_, index) => ({
+        question_index: index,
+        selected_choice_index: selectedQuizAnswers[index],
       }))
-      const result = await submitQuizAttempt(documentId, answers)
+      const result = await submitQuizAttempt(quizId, answers)
       setQuizResult(result)
-    } catch (requestError) {
-      setQuizSubmitError(requestError.message)
+    } catch (error) {
+      setQuizSubmitError(error.message)
     } finally {
+      pending.current.delete('submit')
       setQuizSubmitLoading(false)
     }
   }
 
-  const answeredQuestionCount = Object.keys(selectedQuizAnswers).length
-  const canSubmitQuiz = quiz.length > 0 && answeredQuestionCount === quiz.length && !quizSubmitLoading && !quizResult
-  const activeTool = workspaceTools.find((tool) => tool.id === activeTab)
+  if (documentResource.status === 'error' && !document) {
+    const missing = documentResource.error?.status === 404
+    const signedOut = documentResource.error?.status === 401
+    return (
+      <ErrorPage
+        embedded
+        title={missing ? 'Document not found' : signedOut ? 'Sign in again' : 'Couldn’t open this document'}
+        description={missing ? 'This PDF may no longer be available in your library.' : signedOut ? 'Your session has expired. Sign out, then sign in again to open your PDF.' : 'Try loading the document again or open another PDF from your library.'}
+        onBack={() => onNavigate('library')}
+        backLabel="Back to library"
+        onRetry={missing || signedOut ? undefined : documentResource.retry}
+      />
+    )
+  }
 
   return (
-    <div className="workspace-screen">
-      <header className="dashboard-appbar">
-        <button className="dashboard-brand" type="button" onClick={() => onNavigate('dashboard')}>
-          <Logo />
-        </button>
-
-        <nav className="dashboard-nav" aria-label="Workspace navigation">
-          {workspaceNavItems.map((item) => (
-            <button
-              key={item.page}
-              type="button"
-              onClick={() => onNavigate(item.page)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
-
-        <div className="dashboard-user-menu">
-          <button
-            aria-label={`Switch to ${theme === 'day' ? 'night' : 'day'} mode`}
-            className="theme-toggle-button"
-            type="button"
-            onClick={onToggleTheme}
-          >
-            <span className="theme-toggle-track">
-              <span className="theme-toggle-thumb">{theme === 'day' ? '☀' : '☾'}</span>
-            </span>
-          </button>
-          <button type="button" onClick={() => onNavigate('library')}>
-            Library
-          </button>
-          <button className="signout-button" type="button" onClick={onLogout}>
-            Logout
-          </button>
-        </div>
+    <div className="sp-page">
+      <RouteLink className="sp-text-button sp-back-link" to={workspacePaths.library}>← Back to library</RouteLink>
+      <header className="sp-page-heading sp-document-heading">
+        {document ? <h1>{document.original_filename}</h1> : <h1 className="sp-visually-hidden">Document workspace</h1>}
+        {!document && <ResourceState resource={documentResource} loading="Loading document…" variant="heading" />}
+        {document && (
+          <div className="sp-document-meta">
+            <p role="status">{textReady ? 'Extracted text ready' : 'Extracted text unavailable'}</p>
+            {textReady && (
+              <RouteLink
+                className="sp-text-button"
+                to={textPreviewPath}
+                aria-current={viewingText ? 'page' : undefined}
+                onNavigate={focusTextPreview}
+              >
+                View extracted text
+              </RouteLink>
+            )}
+          </div>
+        )}
       </header>
 
-      <main className="workspace-page">
-        <section className="workspace-hero">
-          <div>
-            <p className="dashboard-kicker">Document Workspace</p>
-            <h1>{document?.original_filename || 'Document Workspace'}</h1>
-            <p>Generate study tools from this PDF: summary, flashcards, quiz, roadmap, and extracted text.</p>
-          </div>
+      {document && documentResource.status === 'error' && (
+        <ResourceState resource={documentResource} failure="We couldn’t refresh the document status." />
+      )}
 
-          <article>
-            <span>Document ID</span>
-            <strong>{documentId}</strong>
-            <p>{document?.processing_status || 'Loading status'}</p>
-          </article>
-        </section>
+      {document && (
+        <div className="sp-workspace">
+          <nav className="sp-tool-rail" aria-label="Document tools">
+            {tools.map(({ id, label }) => (
+              <RouteLink key={id} to={documentPath(documentId, id)} aria-current={activeTool === id ? 'page' : undefined}>{label}</RouteLink>
+            ))}
+          </nav>
+          <label className="sp-field sp-tool-picker">
+            Study tool
+            <select value={viewingText ? '' : activeTool} onChange={(event) => onSelectTool(event.target.value)}>
+              {viewingText && <option value="" disabled>Choose a study tool</option>}
+              {tools.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
+            </select>
+          </label>
 
-        {loading && <p className="dashboard-message">Loading document...</p>}
-        {error && <p className="dashboard-message dashboard-error">{error}</p>}
-
-        {document && (
-          <section className="workspace-status-card">
-            <div>
-              <p className="dashboard-kicker">Status</p>
-              <h2>{document.original_filename}</h2>
+          <section className="sp-tool-panel" aria-labelledby="tool-title" key={activeTool}>
+            <div className="sp-section-heading">
+              <div><h2 id="tool-title" tabIndex={-1} ref={toolHeading}>{tool?.label ?? 'Extracted text'}</h2>{!showQuiz && tool?.description && <p>{tool.description}</p>}</div>
+              {tool?.generate && !showQuiz && textReady && (
+                <button className="sp-button sp-primary" type="button" onClick={handleGenerate} disabled={resource?.status === 'loading'}>
+                  {resource?.status === 'loading' ? 'Generating…' : resource?.status === 'error' ? 'Try again' : `Generate ${tool.label.toLowerCase()}`}
+                </button>
+              )}
             </div>
-            <span>{document.has_extracted_text ? 'Extracted text ready' : 'Extracted text not ready'}</span>
+
+            {!textReady && (
+              <div className="sp-empty">
+                <h3>{extraction.status === 'empty' ? 'No selectable text found' : 'Extract text to start studying'}</h3>
+                {extraction.status === 'idle' && <p>Extract the text from your PDF to use the study tools.</p>}
+                {extracting && <p role="status">Extracting text from your PDF…</p>}
+                {extraction.status === 'empty' && <p role="status">This PDF may be scanned. Upload a PDF with selectable text to use the study tools.</p>}
+                {extraction.status === 'error' && <p role="alert">We couldn’t extract text from this PDF. Try again.</p>}
+                <button className="sp-button sp-primary" type="button" onClick={handleExtractText} disabled={extracting}>
+                  {extracting ? 'Extracting…' : extraction.status === 'error' ? 'Retry extraction' : 'Extract text'}
+                </button>
+              </div>
+            )}
+            {textReady && viewingText && (
+              extraction.data ? <TextPreview data={extraction.data} /> : <ExtractedText documentId={documentId} />
+            )}
+
+            {resource?.status === 'loading' && <Skeleton label={`Generating ${tool.label.toLowerCase()}…`} />}
+            {resource?.status === 'error' && <p className="sp-error" role="alert">{resource.error.message}</p>}
+
+            {resource?.status === 'success' && activeTool === 'summary' && (
+              <p className="sp-reading">{resource.data.summary || 'This PDF returned an empty summary.'}</p>
+            )}
+            {resource?.status === 'success' && activeTool === 'flashcards' && (
+              resource.data.flashcards?.length ? (
+                <div className="sp-flashcards">
+                  {resource.data.flashcards.map((card, index) => (
+                    <details key={`${card.question}-${index}`}><summary>{card.question}</summary><p>{card.answer}</p></details>
+                  ))}
+                </div>
+              ) : <p className="sp-muted">This PDF returned no flashcards.</p>
+            )}
+            {resource?.status === 'success' && activeTool === 'roadmap' && (
+              resource.data.steps?.length ? <RoadmapSteps steps={resource.data.steps} /> : <p className="sp-muted">This PDF returned no study steps.</p>
+            )}
+
+            {showQuiz && (quizResult ? (
+              <div className="sp-quiz-result">
+                <h3 ref={resultHeading} tabIndex={-1}>Quiz results</h3>
+                <strong className="sp-result-score">{quizResult.score_percentage}%</strong>
+                <p>{quizResult.correct_answers} correct out of {quizResult.total_questions}</p>
+                <div className="sp-actions">
+                  <button className="sp-button sp-primary" type="button" onClick={() => onNavigate('practice')}>View practice history</button>
+                  <RouteLink className="sp-button sp-secondary" to={textPreviewPath} onNavigate={focusTextPreview}>Review extracted text</RouteLink>
+                  <button className="sp-text-button" type="button" onClick={handleGenerate}>Generate another quiz</button>
+                </div>
+              </div>
+            ) : (
+              <div className="sp-quiz">
+                <div className="sp-question-progress">
+                  <h3 ref={questionHeading} tabIndex={-1}>Question {questionIndex + 1} of {quiz.length}</h3>
+                  <span role="status">{answeredCount} of {quiz.length} answered</span>
+                </div>
+                <progress aria-label="Questions answered" value={answeredCount} max={quiz.length} />
+                <fieldset className="sp-question" disabled={quizSubmitLoading}>
+                  <legend>{question.question}</legend>
+                  {question.choices.map((choice, choiceIndex) => (
+                    <label className="sp-choice" key={choiceIndex}>
+                      <input type="radio" name={`question-${questionIndex}`} checked={selectedQuizAnswers[questionIndex] === choiceIndex} onChange={() => handleSelectQuizAnswer(questionIndex, choiceIndex)} />
+                      <span>{choice}</span>
+                    </label>
+                  ))}
+                </fieldset>
+                {quizSubmitError && <p className="sp-error" role="alert">{quizSubmitError}</p>}
+                {quizSubmitLoading && <p className="sp-status" role="status">Submitting quiz for grading…</p>}
+                <div className="sp-quiz-actions">
+                  <button className="sp-button sp-secondary" type="button" onClick={() => setQuestionIndex(questionIndex - 1)} disabled={questionIndex === 0 || quizSubmitLoading}>← Previous</button>
+                  {questionIndex + 1 < quiz.length
+                    ? <button className="sp-button sp-primary" type="button" onClick={() => setQuestionIndex(questionIndex + 1)} disabled={selectedQuizAnswers[questionIndex] === undefined}>Next →</button>
+                    : <button className="sp-button sp-primary" type="button" onClick={handleSubmitExam} disabled={!canSubmitQuiz}>{quizSubmitLoading ? 'Submitting…' : quizSubmitError ? 'Retry submission' : 'Submit quiz'}</button>}
+                </div>
+              </div>
+            ))}
           </section>
-        )}
-
-        <section className="workspace-tabs-card workspace-tool-page-card">
-          {activeTab === 'tools' ? (
-            <div className="workspace-tool-menu">
-              <div className="workspace-tool-menu-header">
-                <p className="dashboard-kicker">PDF Study Workspace</p>
-                <h2>Choose how you want to study this document</h2>
-                <p>
-                  Start with a summary, practice with flashcards, take an exam, follow a roadmap, or preview the extracted text.
-                </p>
-              </div>
-
-              <div className="workspace-tool-grid">
-                {workspaceTools.map((tool) => (
-                  <button
-                    className="workspace-tool-card"
-                    key={tool.id}
-                    type="button"
-                    onClick={() => setActiveTab(tool.id)}
-                  >
-                    <div>
-                      <h3>{tool.title}</h3>
-                      <p>{tool.description}</p>
-                    </div>
-                    <span>{tool.action}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="workspace-tool-page-header">
-              <button type="button" onClick={() => setActiveTab('tools')}>
-                ← Back to tools
-              </button>
-              <div>
-                <p className="dashboard-kicker">Current page</p>
-                <h2>{activeTool?.title}</h2>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'summary' && (
-            <article className="workspace-tab-panel">
-              <header>
-                <div>
-                  <p className="dashboard-kicker">Summary</p>
-                  <h2>Understand the document faster</h2>
-                </div>
-                <button
-                  disabled={summaryLoading}
-                  type="button"
-                  onClick={handleGenerateSummary}
-                >
-                  {summaryLoading ? 'Generating...' : summary ? 'Regenerate' : 'Generate Summary'}
-                </button>
-              </header>
-
-              {summaryError && <p className="dashboard-message dashboard-error">{summaryError}</p>}
-
-              {summary ? (
-                <div className="workspace-summary-result">
-                  <p>{summary}</p>
-                </div>
-              ) : (
-                <div className="workspace-empty-tool">
-                  <h3>No summary yet</h3>
-                  <p>Generate a concise explanation from this PDF so you can review the main ideas quickly.</p>
-                </div>
-              )}
-            </article>
-          )}
-
-          {activeTab === 'flashcards' && (
-            <article className="workspace-tab-panel">
-              <header>
-                <div>
-                  <p className="dashboard-kicker">Flashcards</p>
-                  <h2>Practice active recall</h2>
-                </div>
-                <button
-                  disabled={flashcardsLoading}
-                  type="button"
-                  onClick={handleGenerateFlashcards}
-                >
-                  {flashcardsLoading ? 'Generating...' : flashcards.length > 0 ? 'Regenerate' : 'Generate Flashcards'}
-                </button>
-              </header>
-
-              {flashcardsError && <p className="dashboard-message dashboard-error">{flashcardsError}</p>}
-
-              {flashcards.length === 0 && (
-                <div className="workspace-empty-tool">
-                  <h3>No flashcards yet</h3>
-                  <p>Generate flashcards to test yourself with question-and-answer review cards.</p>
-                </div>
-              )}
-
-              {flashcards.length > 0 && (
-                <div className="workspace-flashcard-grid">
-                  {flashcards.map((flashcard, index) => (
-                    <article className="workspace-flashcard" key={`${flashcard.question}-${index}`}>
-                      <span>Question {index + 1}</span>
-                      <h3>{flashcard.question}</h3>
-
-                      {visibleAnswers[index] && <p>{flashcard.answer}</p>}
-
-                      <button type="button" onClick={() => toggleAnswer(index)}>
-                        {visibleAnswers[index] ? 'Hide answer' : 'Show answer'}
-                      </button>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </article>
-          )}
-
-          {activeTab === 'quiz' && (
-            <article className="workspace-tab-panel">
-              <header>
-                <div>
-                  <p className="dashboard-kicker">Exam</p>
-                  <h2>Take a scored quiz</h2>
-                </div>
-                <button
-                  disabled={quizLoading}
-                  type="button"
-                  onClick={handleGenerateQuiz}
-                >
-                  {quizLoading ? 'Generating...' : quiz.length > 0 ? 'Regenerate' : 'Generate Exam'}
-                </button>
-              </header>
-
-              {quizError && <p className="dashboard-message dashboard-error">{quizError}</p>}
-
-              {quiz.length === 0 && (
-                <div className="workspace-empty-tool">
-                  <h3>No exam yet</h3>
-                  <p>Generate questions from this PDF, answer them, then submit to save your score.</p>
-                </div>
-              )}
-
-              {quiz.length > 0 && (
-                <div className="workspace-quiz-list">
-                  <div className="workspace-exam-summary">
-                    <div>
-                      <span>Exam progress</span>
-                      <strong>{answeredQuestionCount}/{quiz.length}</strong>
-                      <p>Answer every question before submitting.</p>
-                    </div>
-                    {quizResult && (
-                      <div>
-                        <span>Your score</span>
-                        <strong>{quizResult.score_percentage}%</strong>
-                        <p>{quizResult.correct_answers} correct out of {quizResult.total_questions}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {quiz.map((question, index) => (
-                    <article className="workspace-quiz-card" key={`${question.question}-${index}`}>
-                      <span>Question {index + 1}</span>
-                      <h3>{question.question}</h3>
-                      <ul>
-                        {(question.choices ?? []).map((choice) => (
-                          <li key={choice}>
-                            <button
-                              className={[
-                                'workspace-quiz-choice',
-                                selectedQuizAnswers[index] === choice ? 'selected' : '',
-                                quizResult && choice === question.correct_answer ? 'correct' : '',
-                                quizResult && selectedQuizAnswers[index] === choice && choice !== question.correct_answer ? 'wrong' : '',
-                              ].filter(Boolean).join(' ')}
-                              type="button"
-                              onClick={() => handleSelectQuizAnswer(index, choice)}
-                            >
-                              {choice}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </article>
-                  ))}
-
-                  {quizSubmitError && <p className="dashboard-message dashboard-error">{quizSubmitError}</p>}
-
-                  <div className="workspace-exam-actions">
-                    <button disabled={!canSubmitQuiz} type="button" onClick={handleSubmitExam}>
-                      {quizSubmitLoading ? 'Submitting...' : quizResult ? 'Score saved' : 'Submit exam'}
-                    </button>
-                    {quizResult && (
-                      <button type="button" onClick={() => onNavigate('practice')}>
-                        View practice history
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-            </article>
-          )}
-
-          {activeTab === 'roadmap' && (
-            <article className="workspace-tab-panel">
-              <header>
-                <div>
-                  <p className="dashboard-kicker">Roadmap</p>
-                  <h2>Follow a study plan</h2>
-                </div>
-                <button
-                  disabled={roadmapLoading}
-                  type="button"
-                  onClick={handleGenerateRoadmap}
-                >
-                  {roadmapLoading ? 'Generating...' : roadmap.length > 0 ? 'Regenerate' : 'Generate Roadmap'}
-                </button>
-              </header>
-
-              {roadmapError && <p className="dashboard-message dashboard-error">{roadmapError}</p>}
-
-              {roadmap.length === 0 && (
-                <div className="workspace-empty-tool">
-                  <h3>No roadmap yet</h3>
-                  <p>Generate step-by-step study guidance for this PDF.</p>
-                </div>
-              )}
-
-              {roadmap.length > 0 && (
-                <ol className="workspace-roadmap-list">
-                  {roadmap.map((step, index) => (
-                    <li key={`${step.title}-${index}`}>
-                      <span>{index + 1}</span>
-                      <div>
-                        <h3>{step.title}</h3>
-                        <p>{step.description}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </article>
-          )}
-
-          {activeTab === 'text' && (
-            <article className="workspace-tab-panel workspace-text-card">
-              <header>
-                <div>
-                  <p className="dashboard-kicker">Extracted Text</p>
-                  <h2>PDF text preview</h2>
-                </div>
-                {documentText?.truncated && <span>Shortened preview</span>}
-              </header>
-
-              {documentText?.text ? (
-                <pre>{documentText.text}</pre>
-              ) : (
-                !loading && !error && <p className="workspace-muted">Extracted text is not available yet.</p>
-              )}
-            </article>
-          )}
-        </section>
-      </main>
+        </div>
+      )}
     </div>
   )
 }

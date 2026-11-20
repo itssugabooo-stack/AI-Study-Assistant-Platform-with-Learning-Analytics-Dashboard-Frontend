@@ -9,7 +9,7 @@ function Logo({ showName = true }) {
         <span className="brand-mark" aria-hidden="true">S</span>
       ) : (
         <img
-          alt="StudyPilot logo"
+          alt={showName ? '' : 'StudyPilot'}
           className="site-logo-image"
           onError={() => setImageMissing(true)}
           src="/images/logo.jpg"

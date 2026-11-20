@@ -1,46 +1,29 @@
-import { apiPost, apiPostForm, apiGet, setToken, removeToken } from './client' //apiPost to send the email/password to the backend, then setToken to save the JWT token.
+import { apiGet, apiPost, removeToken, setToken } from './client'
 
-export async function loginUser(email, password) {
-    removeToken();
+export async function loginUser(email, password, { signal } = {}) {
+  const data = await apiPost('/auth/login', { email, password }, { auth: false, signal })
+  signal?.throwIfAborted()
 
-    let data;
+  if (typeof data?.access_token !== 'string' || !data.access_token) {
+    throw new Error('The service returned an incomplete sign-in response.')
+  }
 
-    try {
-        data = await apiPost("/auth/login", {
-            email,
-            password,
-        }, { auth: false });
-    } catch (jsonLoginError) {
-        try {
-            data = await apiPostForm("/auth/login", {
-                username: email,
-                password,
-            }, { auth: false });
-        } catch {
-            throw jsonLoginError;
-        }
-    }
-
-    if (data.access_token) {
-        setToken(data.access_token);
-    }
-   
-    return data;
+  setToken(data.access_token)
+  return data
 }
 
-export async function registerUser(email, fullName, password)   {
-    return apiPost("/users/register", {
-        email,
-        full_name: fullName,
-        password,
-    }, { auth: false });
+export function registerUser(email, fullName, password, { signal } = {}) {
+  return apiPost('/users/register', {
+    email,
+    full_name: fullName,
+    password,
+  }, { auth: false, signal })
 }
 
-export async function getCurrentUser(){
-    return apiGet("/users/me");
-} 
+export function getCurrentUser(options) {
+  return apiGet('/users/me', options)
+}
 
 export function logoutUser() {
-    removeToken();  
+  removeToken()
 }
-

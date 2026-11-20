@@ -1,220 +1,177 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Logo from '../components/Logo'
+import ThemeToggle from '../components/ThemeToggle'
 import { loginUser, registerUser } from '../api/auth'
 
-function LoginPage({ initialMode, onBack, onLogin }) {
-  const [mode, setMode] = useState(initialMode)
+const SLOW_THRESHOLD = 5_000
+const REQUEST_LIMIT = 20_000
+
+function signInError(error) {
+  if (error.status === 401) return 'The email or password is incorrect.'
+  if (error.status === 429) return 'Too many sign-in attempts. Wait a moment and try again.'
+  if (!navigator.onLine) return 'You’re offline. Check your connection and try again.'
+  if (error instanceof TypeError) return 'StudyPilot couldn’t reach the service. Try again in a moment.'
+  return 'The sign-in service is unavailable. Try again in a moment.'
+}
+
+function LoginPage({ mode, onModeChange, onBack, onLogin, theme, onToggleTheme }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')  
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  
+  const [confirmation, setConfirmation] = useState('')
+  const [progress, setProgress] = useState('')
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState(null)
+  const activeRequest = useRef(null)
   const isSignup = mode === 'signup'
-  const submitLabel = loading
-    ? isSignup ? 'Creating account...' : 'Signing in...'
-    : isSignup ? 'Create account' : 'Sign in'
+
+  useEffect(() => () => {
+    activeRequest.current?.abort()
+  }, [mode])
+
+  function switchMode(nextMode) {
+    activeRequest.current?.abort()
+    activeRequest.current = null
+    setProgress('')
+    setError(null)
+    setNotice('')
+    setPassword('')
+    setConfirmation('')
+    onModeChange(nextMode)
+  }
+
+  function handleBack() {
+    activeRequest.current?.abort()
+    activeRequest.current = null
+    onBack()
+  }
 
   async function handleSubmit(event) {
     event.preventDefault()
-    setError('')
-    if (isSignup && password !== confirmPassword) {
-      setError('Passwords do not match')
+    if (activeRequest.current) return
+
+    setError(null)
+    setNotice('')
+    const cleanEmail = email.trim()
+
+    if (isSignup && password !== confirmation) {
+      setError({ message: 'Enter the same password in both fields.', field: 'confirmation' })
       return
-    } 
-        setLoading(true)
+    }
 
-        try {
-          let result
-          const cleanEmail = email.trim()
+    const controller = new AbortController()
+    const { signal } = controller
+    activeRequest.current = controller
+    let timedOut = false
+    let accountCreated = false
+    setProgress(isSignup ? 'Creating your account…' : 'Signing in…')
 
-          if (isSignup) {
-            await registerUser(cleanEmail, fullName.trim(), password)
-            result = await loginUser(cleanEmail, password)
-          } else {
-            result = await loginUser(cleanEmail, password)
-          }
+    const slowTimer = setTimeout(() => {
+      if (!signal.aborted) setProgress('StudyPilot is taking longer than usual. Still trying…')
+    }, SLOW_THRESHOLD)
+    const timeout = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, REQUEST_LIMIT)
 
-          if (result.access_token) {
-            onLogin()
-            return
-          }
+    try {
+      if (isSignup) {
+        await registerUser(cleanEmail, fullName.trim(), password, { signal })
+        signal.throwIfAborted()
+        accountCreated = true
+        setProgress('Account created. Signing in…')
+      }
 
-          setError('Login failed. Please check your details.')
-        } catch (requestError) {
-          setError(requestError.message || 'Something went wrong. Please try again.')
-        } finally {
-          setLoading(false)
-        }
-      
-      }  
+      const startedAt = performance.now()
+      try {
+        await loginUser(cleanEmail, password, { signal })
+      } finally {
+        performance.measure('StudyPilot login JSON', { start: startedAt, end: performance.now() })
+      }
+      onLogin()
+    } catch (requestError) {
+      if (activeRequest.current !== controller || (signal.aborted && !timedOut)) return
+
+      if (accountCreated || (isSignup && timedOut)) {
+        onModeChange('login', { replace: true })
+        setConfirmation('')
+        if (accountCreated) setNotice('Your account is ready. Sign in to continue.')
+      }
+
+      const message = timedOut
+        ? isSignup && !accountCreated
+          ? 'Account creation is taking too long. If your account was created, sign in with your email.'
+          : 'StudyPilot took too long to respond. Try again.'
+        : isSignup && !accountCreated && requestError.status < 500
+          ? requestError.message
+          : signInError(requestError)
+
+      setError({
+        message,
+        retry: timedOut || (!isSignup && requestError.status !== 401 && requestError.status !== 429),
+        field: requestError.status === 401 && (!isSignup || accountCreated) ? 'credentials' : undefined,
+      })
+    } finally {
+      clearTimeout(slowTimer)
+      clearTimeout(timeout)
+      if (activeRequest.current === controller) {
+        activeRequest.current = null
+        setProgress('')
+      }
+    }
+  }
+
   return (
-    <main className="login-page">
-      <button className="login-back-button" onClick={onBack} type="button">
-        <span aria-hidden="true">&larr;</span>
-        Back to home
-      </button>
-
-      <section className="login-container">
-        <aside className="login-side-panel">
-          <div className="login-brand">
-            <Logo />
-          </div>
-
-          <div className="login-mode-switch">
-            <button
-              className={mode === 'login' ? 'active' : ''}
-              onClick={() => setMode('login')}
-              type="button"
-            >
-              Sign in
-            </button>
-            <button
-              className={isSignup ? 'active' : ''}
-              onClick={() => setMode('signup')}
-              type="button"
-            >
-              Sign up
-            </button>
-          </div>
-
-          <div className="login-side-copy">
-            <p className="login-kicker">StudyPilot</p>
-            <h2>
-              {isSignup
-                ? 'Start your focused study workspace.'
-                : 'Pick up where you left off.'}
-            </h2>
-            <p>
-              Turn PDFs into summaries, flashcards, exams, and study plans without jumping between tools.
-            </p>
-            <ul className="login-benefit-list">
-              <li>PDF library</li>
-              <li>AI summary and flashcards</li>
-              <li>Practice score history</li>
-            </ul>
-          </div>
-        </aside>
-
-        <div className="login-main-panel">
-          <form className="login-form" onSubmit={handleSubmit}>
-            <div className="login-card-brand">
-              <Logo />
-            </div>
-
-            <div className="login-inline-switch">
-              <button
-                className={mode === 'login' ? 'active' : ''}
-                type="button"
-                onClick={() => setMode('login')}
-              >
-                Sign in
-              </button>
-              <button
-                className={isSignup ? 'active' : ''}
-                type="button"
-                onClick={() => setMode('signup')}
-              >
-                Sign up
-              </button>
-            </div>
-
-            <div className="login-user-icon" aria-hidden="true">
-              <span />
-            </div>
-
-            <div className="login-form-heading">
-              <p className="login-kicker">{isSignup ? 'Get started' : 'Welcome back'}</p>
-              <h1>{isSignup ? 'Create account' : 'Welcome'}</h1>
-              <p>
-                {isSignup
-                  ? 'Create your account to start using StudyPilot.'
-                  : 'Sign in to continue to your dashboard.'}
-              </p>
-            </div>
-
+    <main className="sp-auth">
+      <header className="sp-auth-top">
+        <button type="button" className="sp-brand-button" onClick={handleBack} aria-label="StudyPilot home">
+          <Logo />
+        </button>
+        <ThemeToggle theme={theme} onToggleTheme={onToggleTheme} />
+      </header>
+      <div className="sp-auth-layout">
+        <section className="sp-auth-form">
+          <h1>{isSignup ? 'Create an account' : 'Sign in'}</h1>
+          <p className="sp-muted">{isSignup ? 'Start studying from your own PDFs.' : 'Open your study workspace.'}</p>
+          <form onSubmit={handleSubmit}>
             {isSignup && (
-              <label className="login-field">
-                <span>Full name</span>
-                <input
-                  autoComplete="name"
-                  name="name"
-                  placeholder="Your full name"
-                  required
-                  type="text"
-                  value={fullName}
-                  onChange={(event) => setFullName(event.target.value)}
-                />
+              <label className="sp-field">
+                Full name
+                <input name="name" autoComplete="name" required value={fullName} onChange={(event) => setFullName(event.target.value)} />
               </label>
             )}
-
-            <label className="login-field">
-              <span>Email address</span>
-              <input
-                autoComplete="email"
-                name="email"
-                placeholder="student@example.com"
-                required
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
+            <label className="sp-field">
+              Email address
+              <input name="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} aria-invalid={error?.field === 'credentials'} aria-describedby={error?.field === 'credentials' ? 'auth-error' : undefined} />
             </label>
-
-            <label className="login-field">
-              <span>Password</span>
-              <input
-                autoComplete="current-password"
-                name="password"
-                placeholder={isSignup ? 'Create a password' : 'Enter your password'}
-                required
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
+            <label className="sp-field">
+              Password
+              <input name="password" type="password" autoComplete={isSignup ? 'new-password' : 'current-password'} required value={password} onChange={(event) => setPassword(event.target.value)} aria-invalid={error?.field === 'credentials'} aria-describedby={error?.field === 'credentials' ? 'auth-error' : undefined} />
             </label>
-
             {isSignup && (
-              <label className="login-field">
-                <span>Confirm password</span>
-                <input
-                  autoComplete="new-password"
-                  name="confirmPassword"
-                  placeholder="Enter your password again"
-                  required
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.target.value)}
-                />
+              <label className="sp-field">
+                Confirm password
+                <input name="confirmation" type="password" autoComplete="new-password" required value={confirmation} onChange={(event) => setConfirmation(event.target.value)} aria-invalid={error?.field === 'confirmation'} aria-describedby={error?.field === 'confirmation' ? 'auth-error' : undefined} />
               </label>
             )}
-            {error && <p className="form-error">{error}</p>}
-            <div className="login-options">
-              {isSignup ? (
-                <p className="signup-terms">Your account will use the backend JWT auth flow.</p>
-              ) : (
-                <button className="forgot-button" type="button">
-                  Forgot password?
-                </button>
-              )}
-              <button className="login-submit-button" disabled={loading} type="submit">
-                {submitLabel}
-              </button>
+            <div className="sp-form-message">
+              <p role="status">{progress || notice}</p>
+              {error && <p role="alert" id="auth-error">{error.message}</p>}
             </div>
-
-            <p className="login-switch-copy">
-              {isSignup ? 'Already have an account?' : 'New to StudyPilot?'}
-              <button
-                type="button"
-                onClick={() => setMode(isSignup ? 'login' : 'signup')}
-              >
-                {isSignup ? 'Sign in' : 'Create account'}
-              </button>
-            </p>
+            <button className="sp-button sp-primary sp-auth-submit" type="submit" disabled={Boolean(progress)}>
+              {progress ? (isSignup ? 'Creating account…' : 'Signing in…') : error?.retry ? 'Try again' : isSignup ? 'Create account' : 'Sign in'}
+            </button>
           </form>
-        </div>
-      </section>
+          <p className="sp-auth-switch">
+            {isSignup ? 'Already have an account?' : 'New to StudyPilot?'}
+            {' '}
+            <button type="button" className="sp-text-button" onClick={() => switchMode(isSignup ? 'login' : 'signup')}>
+              {isSignup ? 'Sign in' : 'Create an account'}
+            </button>
+          </p>
+        </section>
+        <div className="sp-auth-image" aria-hidden="true" />
+      </div>
     </main>
   )
 }

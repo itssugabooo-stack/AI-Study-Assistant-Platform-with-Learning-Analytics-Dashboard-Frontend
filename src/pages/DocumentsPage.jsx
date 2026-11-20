@@ -1,338 +1,144 @@
 import { useEffect, useRef, useState } from 'react'
-import Logo from '../components/Logo'
 import { getDocuments, uploadDocument } from '../api/documents'
+import ResourceState from '../components/ResourceState'
+import RouteLink from '../components/RouteLink'
+import { documentPath } from '../routes'
+import useResource from '../useResource'
 
-const libraryNavItems = [
-  { label: 'Overview', page: 'dashboard' },
-  { label: 'My Library', page: 'library' },
-  { label: 'Practice', page: 'practice' },
-  { label: 'Study Plan', page: 'study-plan' },
+const filters = [
+  ['all', 'All'],
+  ['ready', 'Text ready'],
+  ['pending', 'Text unavailable'],
 ]
 
-function DocumentsPage({ onNavigate, onOpenDocument, onToggleTheme, onLogout, theme }) {
-  const uploadFormRef = useRef(null)
-  const fileInputRef = useRef(null)
-  const [documents, setDocuments] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [selectedFile, setSelectedFile] = useState(null)
+function DocumentsPage({ showUploadInitially }) {
+  const resource = useResource(getDocuments)
+  const [uploaded, setUploaded] = useState([])
+  const [showUpload, setShowUpload] = useState(showUploadInitially)
+  const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [documentFilter, setDocumentFilter] = useState('all')
-  const [showAllDocuments, setShowAllDocuments] = useState(false)
+  const [uploadNotice, setUploadNotice] = useState('')
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState('all')
+  const fileInput = useRef(null)
+  const uploadButton = useRef(null)
+  const isUploading = useRef(false)
 
   useEffect(() => {
-    async function loadDocuments() {
-      try {
-        const data = await getDocuments()
-        setDocuments(Array.isArray(data) ? data : data.documents ?? [])
-      } catch (requestError) {
-        setError(requestError.message)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadDocuments()
-  }, [])
-
-  function handleStartUpload() {
-    uploadFormRef.current?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'center',
+    if (!showUpload && !uploadNotice) return
+    const frame = requestAnimationFrame(() => {
+      if (showUpload) fileInput.current?.focus()
+      else uploadButton.current?.focus()
     })
-    fileInputRef.current?.click()
-  }
+    return () => cancelAnimationFrame(frame)
+  }, [showUpload, uploadNotice])
 
-  function handleFileChange(event) {
-    const file = event.target.files[0] ?? null
+  const listed = Array.isArray(resource.data) ? resource.data : resource.data?.documents ?? []
+  const documents = [...uploaded, ...listed.filter((doc) => !uploaded.some((newDoc) => newDoc.id === doc.id))]
+  const search = query.trim().toLowerCase()
+  const visible = documents.filter((doc) => (
+    doc.original_filename?.toLowerCase().includes(search)
+    && (filter === 'all' || Boolean(doc.has_extracted_text) === (filter === 'ready'))
+  ))
 
-    if (!file) {
-      setSelectedFile(null)
-      return
-    }
-
-    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
-    const isTooLarge = file.size > 10 * 1024 * 1024
-
-    if (!isPdf) {
-      setSelectedFile(null)
-      setUploadError('Please choose a PDF file.')
-      event.target.value = ''
-      return
-    }
-
-    if (isTooLarge) {
-      setSelectedFile(null)
-      setUploadError('PDF must be 10 MB or smaller.')
-      event.target.value = ''
-      return
-    }
-
-    setSelectedFile(file)
+  function chooseFile(event) {
+    const selection = event.target.files[0]
     setUploadError('')
+    setUploadNotice('')
+    setFile(null)
+    if (!selection) return
+
+    if (selection.type !== 'application/pdf' && !selection.name.toLowerCase().endsWith('.pdf')) {
+      setUploadError('Choose a PDF file.')
+      event.target.value = ''
+    } else if (selection.size > 10 * 1024 * 1024) {
+      setUploadError('Choose a PDF that is 10 MB or smaller.')
+      event.target.value = ''
+    } else {
+      setFile(selection)
+    }
   }
 
   async function handleUpload(event) {
     event.preventDefault()
-
-    if (!selectedFile) {
-      setUploadError('')
-      fileInputRef.current?.click()
-      return
-    }
-
+    if (!file || isUploading.current) return
+    isUploading.current = true
     setUploading(true)
     setUploadError('')
+    setUploadNotice('')
 
     try {
-      const newDocument = await uploadDocument(selectedFile)
-      setDocuments((currentDocuments) => [
-        newDocument,
-        ...currentDocuments,
-      ])
-      setSelectedFile(null)
-      setError('')
-
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
-    } catch (requestError) {
-      setUploadError(requestError.message)
+      const document = await uploadDocument(file)
+      setUploaded((previous) => [document, ...previous.filter((item) => item.id !== document.id)])
+      setQuery('')
+      setFilter('all')
+      setFile(null)
+      if (fileInput.current) fileInput.current.value = ''
+      setShowUpload(false)
+      setUploadNotice('PDF uploaded. You can open it from the library.')
+    } catch (error) {
+      setUploadError(error.message)
     } finally {
+      isUploading.current = false
       setUploading(false)
     }
   }
 
-  const readyDocumentCount = documents.filter((studyDocument) => studyDocument.has_extracted_text).length
-  const pendingDocumentCount = documents.length - readyDocumentCount
-  const normalizedSearch = searchQuery.trim().toLowerCase()
-  const filteredDocuments = documents.filter((studyDocument) => {
-    const filename = studyDocument.original_filename?.toLowerCase() ?? ''
-    const matchesSearch = filename.includes(normalizedSearch)
-
-    if (documentFilter === 'ready') {
-      return matchesSearch && studyDocument.has_extracted_text
-    }
-
-    if (documentFilter === 'pending') {
-      return matchesSearch && !studyDocument.has_extracted_text
-    }
-
-    return matchesSearch
-  })
-  const visibleDocuments = showAllDocuments ? filteredDocuments : filteredDocuments.slice(0, 3)
-  const hiddenDocumentCount = Math.max(filteredDocuments.length - visibleDocuments.length, 0)
-
   return (
-    <div className="library-screen">
-      <header className="dashboard-appbar">
-        <button className="dashboard-brand" type="button" onClick={() => onNavigate('dashboard')}>
-          <Logo />
-        </button>
-
-        <nav className="dashboard-nav" aria-label="Library navigation">
-          {libraryNavItems.map((item) => (
-            <button
-              className={item.page === 'library' ? 'active' : ''}
-              key={item.page}
-              type="button"
-              onClick={() => onNavigate(item.page)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
-
-        <div className="dashboard-user-menu">
-          <button
-            aria-label={`Switch to ${theme === 'day' ? 'night' : 'day'} mode`}
-            className="theme-toggle-button"
-            type="button"
-            onClick={onToggleTheme}
-          >
-            <span className="theme-toggle-track">
-              <span className="theme-toggle-thumb">{theme === 'day' ? '☀' : '☾'}</span>
-            </span>
-          </button>
-          <button type="button" onClick={handleStartUpload}>
-            Upload
-          </button>
-          <button className="signout-button" type="button" onClick={onLogout}>
-            Logout
-          </button>
-        </div>
+    <div className="sp-page">
+      <header className="sp-page-heading">
+        <div><h1>Library</h1><p>Find a PDF and open its study workspace.</p></div>
+        <button ref={uploadButton} className="sp-button sp-primary" type="button" aria-expanded={showUpload} aria-controls="library-upload" onClick={() => setShowUpload(!showUpload)} disabled={uploading}>+ Upload PDF</button>
       </header>
 
-      <main className="dashboard-content library-page">
-        <section className="library-hero">
-          <div>
-            <p className="dashboard-kicker">My Library</p>
-            <h1>Your study materials</h1>
-            <p>Upload PDFs and open a workspace to generate summaries, flashcards, quizzes, and roadmaps.</p>
-          </div>
+      <form id="library-upload" className="sp-upload" onSubmit={handleUpload} hidden={!showUpload}>
+        <h2>Upload a PDF</h2>
+        <label className="sp-field">
+          PDF file <span className="sp-muted">Up to 10 MB</span>
+          <input ref={fileInput} type="file" accept=".pdf,application/pdf" required onChange={chooseFile} disabled={uploading} />
+        </label>
+        {uploadError && <p className="sp-error" role="alert">{uploadError}</p>}
+        {uploading && <p className="sp-status" role="status">Uploading your PDF…</p>}
+        <button type="submit" className="sp-button sp-primary" disabled={!file || uploading}>{uploading ? 'Uploading…' : uploadError ? 'Retry upload' : 'Add to library'}</button>
+      </form>
+      <p className="sp-visually-hidden" role="status">{uploadNotice}</p>
 
-          <article>
-            <span>Total documents</span>
-            <strong>{documents.length}</strong>
-            <p>{documents.length === 1 ? 'PDF uploaded' : 'PDFs uploaded'}</p>
-          </article>
-        </section>
-
-        <section className="library-layout-grid">
-          <form className="library-upload-card" ref={uploadFormRef} onSubmit={handleUpload}>
-            <div>
-              <p className="dashboard-kicker">Upload</p>
-              <h2>Add a PDF</h2>
-              <p>PDF only. Max file size from backend: 10 MB.</p>
+      <section className="sp-section" aria-labelledby="library-title">
+        <div className="sp-section-heading">
+          <div><h2 id="library-title">Your PDFs</h2>{resource.status === 'success' && <p>{documents.length} {documents.length === 1 ? 'document' : 'documents'}</p>}</div>
+          {documents.length > 0 && (
+            <div className="sp-filters">
+              <label className="sp-field"><span className="sp-visually-hidden">Search PDFs</span><input type="search" placeholder="Search PDFs" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+              <label className="sp-field">
+                <span className="sp-visually-hidden">Filter by text availability</span>
+                <select value={filter} onChange={(event) => setFilter(event.target.value)}>
+                  {filters.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
             </div>
-
-            <label className="library-file-picker" htmlFor="library-pdf-upload">
-              <span>{selectedFile ? 'Selected file' : 'Choose a PDF'}</span>
-              <strong>{selectedFile ? selectedFile.name : 'Click to browse'}</strong>
-              <input
-                id="library-pdf-upload"
-                ref={fileInputRef}
-                accept="application/pdf"
-                type="file"
-                onChange={handleFileChange}
-              />
-            </label>
-
-            <button disabled={uploading} type="submit">
-              {uploading ? 'Uploading...' : selectedFile ? 'Upload PDF' : 'Choose PDF'}
-            </button>
-            {uploadError && <p className="dashboard-message dashboard-error">{uploadError}</p>}
-          </form>
-
-          <section className="library-document-panel">
-            <header>
-              <div>
-                <p className="dashboard-kicker">Documents</p>
-                <h2>Your PDFs</h2>
+          )}
+        </div>
+        <ResourceState resource={resource} loading="Loading your PDFs…" failure="We couldn’t load your library." />
+        {resource.status === 'success' && documents.length === 0 && (
+          <div className="sp-empty"><h3>No PDFs yet</h3><p>Upload your first PDF to start studying.</p></div>
+        )}
+        {documents.length > 0 && visible.length === 0 && (
+          <div className="sp-empty"><h3>No matching PDFs</h3><button className="sp-text-button" type="button" onClick={() => { setQuery(''); setFilter('all') }}>Clear filters</button></div>
+        )}
+        <ul className="sp-document-list">
+          {visible.map((doc) => (
+            <li key={doc.id}>
+              <span className="sp-file-mark" aria-hidden="true">PDF</span>
+              <div className="sp-document-info">
+                <h3>{doc.original_filename}</h3>
+                <p>{doc.has_extracted_text ? 'Text ready' : 'Text unavailable'}</p>
               </div>
-              <span>{documents.length} total</span>
-            </header>
-
-            {loading && <p className="dashboard-message">Loading documents...</p>}
-            {error && <p className="dashboard-message dashboard-error">{error}</p>}
-            {!loading && !error && documents.length === 0 && (
-              <div className="library-empty-state">
-                <h3>No documents yet</h3>
-                <p>Upload your first PDF to start using the AI workspace.</p>
-              </div>
-            )}
-
-            {documents.length > 0 && (
-              <div className="library-document-tools">
-                <label className="library-search-field">
-                  <span>Search PDF</span>
-                  <input
-                    placeholder="Type a PDF name..."
-                    type="search"
-                    value={searchQuery}
-                    onChange={(event) => {
-                      setSearchQuery(event.target.value)
-                      setShowAllDocuments(false)
-                    }}
-                  />
-                </label>
-
-                <div className="library-filter-tabs" aria-label="Filter documents">
-                  <button
-                    className={documentFilter === 'all' ? 'active' : ''}
-                    type="button"
-                    onClick={() => {
-                      setDocumentFilter('all')
-                      setShowAllDocuments(false)
-                    }}
-                  >
-                    All
-                    <span>{documents.length}</span>
-                  </button>
-                  <button
-                    className={documentFilter === 'ready' ? 'active' : ''}
-                    type="button"
-                    onClick={() => {
-                      setDocumentFilter('ready')
-                      setShowAllDocuments(false)
-                    }}
-                  >
-                    Ready
-                    <span>{readyDocumentCount}</span>
-                  </button>
-                  <button
-                    className={documentFilter === 'pending' ? 'active' : ''}
-                    type="button"
-                    onClick={() => {
-                      setDocumentFilter('pending')
-                      setShowAllDocuments(false)
-                    }}
-                  >
-                    Pending
-                    <span>{pendingDocumentCount}</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {documents.length > 0 && filteredDocuments.length === 0 && (
-              <div className="library-empty-state">
-                <h3>No matching PDFs</h3>
-                <p>Try another filename or change the filter.</p>
-                <button
-                  className="library-clear-filter"
-                  type="button"
-                  onClick={() => {
-                    setSearchQuery('')
-                    setDocumentFilter('all')
-                    setShowAllDocuments(false)
-                  }}
-                >
-                  Clear search
-                </button>
-              </div>
-            )}
-
-            {visibleDocuments.length > 0 && (
-              <>
-                <div className="library-result-bar">
-                  <p>
-                    {showAllDocuments
-                      ? `${filteredDocuments.length} PDFs shown`
-                      : `${visibleDocuments.length} latest PDFs`}
-                  </p>
-
-                  {filteredDocuments.length > 3 && (
-                    <button
-                      type="button"
-                      onClick={() => setShowAllDocuments((currentValue) => !currentValue)}
-                    >
-                      {showAllDocuments ? 'Show less' : `See ${hiddenDocumentCount} more`}
-                    </button>
-                  )}
-                </div>
-
-                <div className={`library-document-list ${showAllDocuments ? 'is-scrollable' : ''}`}>
-                  {visibleDocuments.map((studyDocument) => (
-                    <article className="library-document-card" key={studyDocument.id}>
-                      <div>
-                        <span>{studyDocument.has_extracted_text ? 'Text ready' : 'Text pending'}</span>
-                        <h3>{studyDocument.original_filename}</h3>
-                        <p>Status: {studyDocument.processing_status}</p>
-                      </div>
-                      <button type="button" onClick={() => onOpenDocument(studyDocument.id)}>
-                        Open workspace
-                      </button>
-                    </article>
-                  ))}
-                </div>
-              </>
-            )}
-          </section>
-        </section>
-      </main>
+              <RouteLink className="sp-button sp-secondary" to={documentPath(doc.id)} aria-label={`Open workspace for ${doc.original_filename}`}>Open workspace <span aria-hidden="true">→</span></RouteLink>
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   )
 }

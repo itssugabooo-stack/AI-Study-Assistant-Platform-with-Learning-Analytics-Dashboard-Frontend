@@ -1,5 +1,5 @@
-import { apiGet } from "./client";
+import { apiGet } from './client'
 
-export async function getMyAnalytics() {
-    return apiGet("/analytics/me");
+export function getMyAnalytics(options) {
+  return apiGet('/analytics/me', options)
 }

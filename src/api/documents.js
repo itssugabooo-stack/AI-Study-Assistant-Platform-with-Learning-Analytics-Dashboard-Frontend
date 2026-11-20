@@ -1,15 +1,15 @@
 import API_BASE_URL, { apiGet, getToken } from "./client";
 
-export async function getDocuments() {
-    return apiGet("/documents");
+export async function getDocuments(options) {
+    return apiGet("/documents", options);
 }   
 
-export async function getDocument(documentId){
-    return apiGet(`/documents/${documentId}`);
+export async function getDocument(documentId, options){
+    return apiGet(`/documents/${documentId}`, options);
 }
 
-export async function getDocumentText(documentId) {
-    return apiGet(`/documents/${documentId}/text`);
+export async function getDocumentText(documentId, options) {
+    return apiGet(`/documents/${documentId}/text`, options);
 }
 
 
