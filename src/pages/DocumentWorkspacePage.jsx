@@ -40,7 +40,7 @@ function ExtractedText({ documentId }) {
   )
 }
 
-function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigate }) {
+function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigate, onUpload }) {
   const loadDocument = useCallback((options) => getDocument(documentId, options), [documentId])
   const documentResource = useResource(loadDocument)
   const [extraction, setExtraction] = useState({ status: 'idle' })
@@ -107,8 +107,10 @@ function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigat
 
       setExtraction({ status: 'ready', data, document })
       documentResource.retry()
-    } catch {
-      if (!controller.signal.aborted) setExtraction({ status: 'error' })
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setExtraction({ status: error?.status === 409 ? 'missing' : 'error' })
+      }
     } finally {
       activeExtraction.current = null
     }
@@ -240,14 +242,23 @@ function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigat
 
             {!textReady && (
               <div className="sp-empty">
-                <h3>{extraction.status === 'empty' ? 'No selectable text found' : 'Extract text to start studying'}</h3>
-                {extraction.status === 'idle' && <p>Extract the text from your PDF to use the study tools.</p>}
-                {extracting && <p role="status">Extracting text from your PDF…</p>}
-                {extraction.status === 'empty' && <p role="status">This PDF may be scanned. Upload a PDF with selectable text to use the study tools.</p>}
-                {extraction.status === 'error' && <p role="alert">We couldn’t extract text from this PDF. Try again.</p>}
-                <button className="sp-button sp-primary" type="button" onClick={handleExtractText} disabled={extracting}>
-                  {extracting ? 'Extracting…' : extraction.status === 'error' ? 'Retry extraction' : 'Extract text'}
-                </button>
+                {extraction.status === 'missing' ? (
+                  <>
+                    <p role="alert">This PDF is missing. Please upload it again.</p>
+                    <button className="sp-button sp-primary" type="button" onClick={onUpload}>Upload PDF</button>
+                  </>
+                ) : (
+                  <>
+                    <h3>{extraction.status === 'empty' ? 'No selectable text found' : 'Extract text to start studying'}</h3>
+                    {extraction.status === 'idle' && <p>Extract the text from your PDF to use the study tools.</p>}
+                    {extracting && <p role="status">Extracting text from your PDF…</p>}
+                    {extraction.status === 'empty' && <p role="status">This PDF may be scanned. Upload a PDF with selectable text to use the study tools.</p>}
+                    {extraction.status === 'error' && <p role="alert">We couldn’t extract text from this PDF. Try again.</p>}
+                    <button className="sp-button sp-primary" type="button" onClick={handleExtractText} disabled={extracting}>
+                      {extracting ? 'Extracting…' : extraction.status === 'error' ? 'Retry extraction' : 'Extract text'}
+                    </button>
+                  </>
+                )}
               </div>
             )}
             {textReady && viewingText && (

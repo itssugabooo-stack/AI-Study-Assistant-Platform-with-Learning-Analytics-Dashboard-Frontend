@@ -133,6 +133,7 @@ function App() {
         activeTool={route.tool}
         onSelectTool={(tool) => openDocument(route.documentId, tool)}
         onNavigate={navigate}
+        onUpload={openUpload}
       />
       break
     case 'practice':
