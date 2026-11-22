@@ -1,4 +1,4 @@
-import API_BASE_URL, { apiGet, getToken } from "./client";
+import { apiGet, apiGetBlob, apiPostForm, getToken } from "./client";
 
 export async function getDocuments(options) {
     return apiGet("/documents", options);
@@ -8,42 +8,19 @@ export async function getDocument(documentId, options){
     return apiGet(`/documents/${documentId}`, options);
 }
 
-export async function getDocumentText(documentId, options) {
-    return apiGet(`/documents/${documentId}/text`, options);
+export async function getDocumentPdf(documentId, options) {
+    return apiGetBlob(`/documents/${encodeURIComponent(documentId)}/file`, options);
 }
 
 
 export async function uploadDocument(file) {
+    if (!getToken()) {
+        const error = new Error('Sign in again before uploading.');
+        error.status = 401;
+        throw error;
+    }
+
     const formData = new FormData();
     formData.append("file", file);
-    const token = getToken();
-
-    if (!token) {
-        throw new Error('Please login again before uploading.')
-    }
-
-    const response = await fetch(`${API_BASE_URL}/documents/upload`, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-    });
-
-    if (!response.ok) {
-        let message = `Upload failed: ${response.status}`
-
-        try {
-            const errorData = await response.json()
-            message = errorData.detail || message
-        } catch {
-            // Keep the status message when the backend does not return JSON.
-        }
-
-        throw new Error(message)
-    }
-
-
-    return response.json();
-
+    return apiPostForm("/documents/upload", formData);
 }

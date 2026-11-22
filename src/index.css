@@ -255,8 +255,9 @@ p { line-height: 1.6; overflow-wrap: anywhere; }
   max-inline-size: 100%; white-space: normal; overflow-wrap: anywhere;
   font-size: clamp(1.65rem, 4vw, 2.8rem);
 }
-.sp-document-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0 16px; margin-top: 10px; }
+.sp-document-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 10px; }
 .sp-document-heading .sp-document-meta p { margin: 0; }
+.sp-document-heading p.sp-error { color: var(--error); }
 .sp-workspace { display: grid; grid-template-columns: 157px minmax(0, 1fr); gap: 18px; align-items: start; }
 .sp-tool-rail { display: grid; gap: 4px; position: sticky; top: 24px; }
 .sp-tool-picker { display: none; }

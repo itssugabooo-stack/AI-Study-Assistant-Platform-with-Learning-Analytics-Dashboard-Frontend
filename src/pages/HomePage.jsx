@@ -6,7 +6,7 @@ import { authPath } from '../routes'
 
 const workflow = [
   ['Upload your PDF', 'Add lecture notes, slides, or a course reading to your library.'],
-  ['Extract text and choose a tool', 'Open the PDF, extract its text, then choose how you want to study.'],
+  ['Choose a study tool', 'Open your prepared PDF and choose how you want to study.'],
   ['Practice and review', 'Take a quiz on your reading and revisit your scores in Practice.'],
 ]
 

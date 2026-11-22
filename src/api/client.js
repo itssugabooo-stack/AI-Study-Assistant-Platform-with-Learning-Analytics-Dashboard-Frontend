@@ -18,20 +18,36 @@ export function removeToken() {
 async function readResponse(response, signal) {
   if (response.ok) return response.json()
 
-  let message = `Request failed (${response.status}).`
+  let message = response.status === 429
+    ? 'Too many requests. Please try again later.'
+    : 'We could not complete your request. Please try again.'
+  let code
   try {
-    const data = await response.json()
-    if (typeof data.detail === 'string') message = data.detail
+    const { detail } = await response.json()
+    if (typeof detail === 'string' && detail.trim()) message = detail
+    if (typeof detail?.message === 'string' && detail.message.trim()) message = detail.message
+    if (typeof detail?.code === 'string') code = detail.code
   } catch {
     signal?.throwIfAborted()
   }
 
   const error = new Error(message)
   error.status = response.status
+  if (code) error.code = code
   throw error
 }
 
-async function request(path, options, auth) {
+async function readBlobResponse(response, signal) {
+  signal?.throwIfAborted()
+  if (!response.ok) {
+    const error = new Error('We could not load the file.')
+    error.status = response.status
+    throw error
+  }
+  return response.blob()
+}
+
+async function request(path, options, auth, read = readResponse) {
   const token = auth ? getToken() : null
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
@@ -46,11 +62,15 @@ async function request(path, options, auth) {
     window.dispatchEvent(new Event(sessionExpiredEvent))
   }
 
-  return readResponse(response, options.signal)
+  return read(response, options.signal)
 }
 
 export function apiGet(path, { signal } = {}) {
   return request(path, { signal }, true)
+}
+
+export function apiGetBlob(path, { signal } = {}) {
+  return request(path, { signal, cache: 'no-store' }, true, readBlobResponse)
 }
 
 export function apiPost(path, data, { auth = true, signal } = {}) {
@@ -60,4 +80,8 @@ export function apiPost(path, data, { auth = true, signal } = {}) {
     body: JSON.stringify(data),
     signal,
   }, auth)
+}
+
+export function apiPostForm(path, body) {
+  return request(path, { method: 'POST', body }, true)
 }

@@ -1,4 +1,8 @@
-import { apiPost} from './client';
+import { apiGet, apiPost } from './client';
+
+export async function getStudyMaterials(documentId, options) {
+    return apiGet(`/ai/documents/${documentId}/study-materials`, options);
+}
 
 export async function generateSummary(documentId) {
     return apiPost(`/ai/documents/${documentId}/summary`);

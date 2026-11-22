@@ -6,7 +6,7 @@ export const workspacePaths = {
 }
 
 const workspacePages = new Map(Object.entries(workspacePaths).map(([page, path]) => [path, page]))
-const documentTools = ['summary', 'flashcards', 'quiz', 'roadmap', 'text']
+const documentTools = ['summary', 'flashcards', 'quiz', 'roadmap']
 const navigationEvent = 'studypilot:navigate'
 
 export function readRoute(url) {
@@ -20,9 +20,9 @@ export function readRoute(url) {
   const workspacePage = workspacePages.get(pathname)
   if (workspacePage) return { page: workspacePage, workspace: true }
 
-  const documentMatch = pathname.match(/^\/library\/([1-9]\d*)$/)
+  const documentMatch = pathname.match(/^\/library\/([1-9]\d*)(\/text)?$/)
   if (documentMatch) {
-    const tool = url.searchParams.get('tool')
+    const tool = documentMatch[2] ? 'summary' : url.searchParams.get('tool')
     return {
       page: 'document-workspace',
       workspace: true,

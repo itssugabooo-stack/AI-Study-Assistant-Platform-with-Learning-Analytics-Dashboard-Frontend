@@ -11,6 +11,25 @@ const filters = [
   ['pending', 'Text unavailable'],
 ]
 
+function getUploadNotice(document) {
+  if (document.processing_status === 'no_text') {
+    return 'PDF uploaded, but no selectable text was found. Try uploading a PDF with selectable text.'
+  }
+  if (document.processing_status === 'extraction_failed') {
+    return 'PDF uploaded, but we could not read its text. Open its workspace to retry with a study tool.'
+  }
+  if (document.has_extracted_text) return 'PDF uploaded and ready to study.'
+  return 'PDF uploaded. You can open it from the library.'
+}
+
+function getUploadError(error) {
+  if (error?.status === 429) return 'Uploads are busy right now. Please wait a moment and try again.'
+  if (error?.status === 401) return 'Sign in again before uploading.'
+  if (error?.status === 413) return 'Choose a PDF that is 10 MB or smaller.'
+  if (error?.status === 400 || error?.status === 415) return 'Check that your file is a valid PDF and try again.'
+  return 'We could not upload your PDF. Please try again.'
+}
+
 function DocumentsPage({ showUploadInitially }) {
   const resource = useResource(getDocuments)
   const [uploaded, setUploaded] = useState([])
@@ -76,9 +95,9 @@ function DocumentsPage({ showUploadInitially }) {
       setFile(null)
       if (fileInput.current) fileInput.current.value = ''
       setShowUpload(false)
-      setUploadNotice('PDF uploaded. You can open it from the library.')
+      setUploadNotice(getUploadNotice(document))
     } catch (error) {
-      setUploadError(error.message)
+      setUploadError(getUploadError(error))
     } finally {
       isUploading.current = false
       setUploading(false)
@@ -99,10 +118,10 @@ function DocumentsPage({ showUploadInitially }) {
           <input ref={fileInput} type="file" accept=".pdf,application/pdf" required onChange={chooseFile} disabled={uploading} />
         </label>
         {uploadError && <p className="sp-error" role="alert">{uploadError}</p>}
-        {uploading && <p className="sp-status" role="status">Uploading your PDF…</p>}
-        <button type="submit" className="sp-button sp-primary" disabled={!file || uploading}>{uploading ? 'Uploading…' : uploadError ? 'Retry upload' : 'Add to library'}</button>
+        {uploading && <p className="sp-status" role="status">Uploading and preparing your PDF…</p>}
+        <button type="submit" className="sp-button sp-primary" disabled={!file || uploading}>{uploading ? 'Preparing PDF…' : uploadError ? 'Retry upload' : 'Add to library'}</button>
       </form>
-      <p className="sp-visually-hidden" role="status">{uploadNotice}</p>
+      <div className="sp-status" role="status">{uploadNotice}</div>
 
       <section className="sp-section" aria-labelledby="library-title">
         <div className="sp-section-heading">

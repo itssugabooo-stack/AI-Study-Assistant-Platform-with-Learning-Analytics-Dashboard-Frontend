@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { getDocument, getDocumentText } from '../api/documents'
-import { generateSummary, generateFlashcards, generateQuiz, generateRoadmap } from '../api/ai'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { getDocument, getDocumentPdf } from '../api/documents'
+import { getStudyMaterials, generateSummary, generateFlashcards, generateQuiz, generateRoadmap } from '../api/ai'
 import { submitQuizAttempt } from '../api/quizzes'
 import ResourceState from '../components/ResourceState'
 import RoadmapSteps from '../components/RoadmapSteps'
 import Skeleton from '../components/Skeleton'
 import RouteLink from '../components/RouteLink'
+import { generationErrorMessage, getPreparationIssue, preparationMessages } from '../documentPreparation'
+import { openPdf } from '../openPdf'
 import { documentPath, workspacePaths } from '../routes'
 import useResource from '../useResource'
 import ErrorPage from './ErrorPage'
@@ -17,134 +19,112 @@ const tools = [
   { id: 'roadmap', label: 'Roadmap', description: 'Get an ordered list of topics to review from this PDF.', generate: generateRoadmap },
 ]
 
-function TextPreview({ data }) {
-  if (!data?.text?.trim()) return <p className="sp-muted">There’s no extracted text available for this PDF.</p>
-
-  return (
-    <>
-      {data.truncated && <p className="sp-muted">Showing a shortened preview.</p>}
-      <pre className="sp-reading">{data.text}</pre>
-    </>
-  )
+const pdfOpenMessages = {
+  blocked: 'Your browser blocked the new tab. Allow pop-ups for this site and try again.',
+  closed: 'The PDF tab was closed before the file opened. Try opening it again.',
+  unauthorized: 'Sign in again to open this PDF.',
+  unavailable: 'This PDF is not available to your account.',
+  failed: 'We could not open this PDF. Please try again.',
 }
 
-function ExtractedText({ documentId }) {
-  const loadText = useCallback((options) => getDocumentText(documentId, options), [documentId])
-  const resource = useResource(loadText)
+function isScorableQuiz(data) {
+  return data?.quiz_id != null && Array.isArray(data.questions) && data.questions.length > 0
+    && data.questions.every((item) => typeof item?.question === 'string' && Array.isArray(item.choices) && item.choices.length >= 2)
+}
 
+function PreparationNotice({ issue, onUpload }) {
   return (
-    <>
-      <ResourceState resource={resource} loading="Loading extracted text…" failure="The extracted text couldn’t be loaded." />
-      {resource.status === 'success' && <TextPreview data={resource.data} />}
-    </>
+    <div className="sp-empty">
+      <p role={issue === 'no_text' ? 'status' : 'alert'}>{preparationMessages[issue]}</p>
+      <button className={issue === 'extraction_failed' ? 'sp-button sp-secondary' : 'sp-button sp-primary'} type="button" onClick={onUpload}>
+        Upload PDF
+      </button>
+    </div>
   )
 }
 
 function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigate, onUpload }) {
   const loadDocument = useCallback((options) => getDocument(documentId, options), [documentId])
   const documentResource = useResource(loadDocument)
-  const [extraction, setExtraction] = useState({ status: 'idle' })
-  const activeExtraction = useRef(null)
-  const document = documentResource.data ?? extraction.document
-  const textReady = document?.has_extracted_text || extraction.status === 'ready'
-  const extracting = extraction.status === 'loading'
-  const [resources, setResources] = useState({})
-  const [quizId, setQuizId] = useState(null)
+  const loadMaterials = useCallback((options) => getStudyMaterials(documentId, options), [documentId])
+  const materialsResource = useResource(loadMaterials)
+  const document = documentResource.data
+  const [preparation, setPreparation] = useState(null)
+  const preparationStatus = preparation ?? (document?.has_extracted_text ? 'ready' : document?.processing_status)
+  const textReady = preparationStatus === 'ready'
+  const generationBlocked = preparationStatus === 'missing' || preparationStatus === 'no_text'
+  const [generations, setGenerations] = useState({})
   const [selectedQuizAnswers, setSelectedQuizAnswers] = useState({})
   const [questionIndex, setQuestionIndex] = useState(0)
   const [quizSubmitLoading, setQuizSubmitLoading] = useState(false)
   const [quizSubmitError, setQuizSubmitError] = useState('')
   const [quizResult, setQuizResult] = useState(null)
-  const pending = useRef(new Set())
+  const [pdfStatus, setPdfStatus] = useState(null)
+  const pdfRequest = useRef(null)
+  const generatingTool = useRef(null)
+  const submittingQuiz = useRef(false)
   const questionHeading = useRef(null)
   const resultHeading = useRef(null)
-  const toolHeading = useRef(null)
-  const focusToolHeading = useRef(false)
 
   const tool = tools.find(({ id }) => id === activeTool)
-  const viewingText = activeTool === 'text'
-  const textPreviewPath = documentPath(documentId, 'text')
-  const resource = resources[activeTool]
-  const quiz = resources.quiz?.data?.questions ?? []
+  const generation = generations[activeTool]
+  const generating = generation?.status === 'loading'
+  const anyGenerating = Object.values(generations).some(({ status }) => status === 'loading')
+  const quizGenerating = generations.quiz?.status === 'loading'
+  // A completed generation takes precedence over any saved read, even if that read finishes later.
+  const material = generation?.data ?? materialsResource.data?.[activeTool]
+  const quizData = generations.quiz?.data ?? materialsResource.data?.quiz
+  const quiz = isScorableQuiz(quizData) ? quizData.questions : []
   const question = quiz[questionIndex]
   const answeredCount = Object.keys(selectedQuizAnswers).length
-  const canSubmitQuiz = quizId != null && quiz.length > 0 && answeredCount === quiz.length
+  const canSubmitQuiz = quiz.length > 0 && answeredCount === quiz.length && !quizGenerating
     && !quizSubmitLoading && !quizResult
-  const showQuiz = activeTool === 'quiz' && resource?.status === 'success' && Boolean(question)
-
-  useEffect(() => () => activeExtraction.current?.abort(), [])
+  const showQuiz = activeTool === 'quiz' && Boolean(question)
 
   useLayoutEffect(() => {
     if (showQuiz) (quizResult ? resultHeading : questionHeading).current?.focus()
-  }, [questionIndex, quizResult, showQuiz])
+  }, [questionIndex, quizData, quizResult, showQuiz])
 
-  useLayoutEffect(() => {
-    if (!focusToolHeading.current) return
-    focusToolHeading.current = false
-    toolHeading.current?.focus()
-  }, [activeTool])
+  useLayoutEffect(() => () => pdfRequest.current?.abort(), [documentId])
 
-  function focusTextPreview() {
-    if (viewingText) toolHeading.current?.focus()
-    else focusToolHeading.current = true
-  }
-
-  async function handleExtractText() {
-    if (textReady || activeExtraction.current) return
+  async function handleOpenPdf() {
+    if (pdfRequest.current) return
     const controller = new AbortController()
-    activeExtraction.current = controller
-    setExtraction({ status: 'loading' })
-
-    try {
-      const data = await getDocumentText(documentId, { signal: controller.signal })
-      controller.signal.throwIfAborted()
-      if (typeof data?.text !== 'string') throw new Error('Invalid text response')
-
-      if (!data.text.trim()) {
-        setExtraction({ status: 'empty' })
-        return
-      }
-
-      setExtraction({ status: 'ready', data, document })
-      documentResource.retry()
-    } catch (error) {
-      if (!controller.signal.aborted) {
-        setExtraction({ status: error?.status === 409 ? 'missing' : 'error' })
-      }
-    } finally {
-      activeExtraction.current = null
-    }
+    pdfRequest.current = controller
+    setPdfStatus('loading')
+    const status = await openPdf((options) => getDocumentPdf(documentId, options), controller.signal)
+    pdfRequest.current = null
+    if (!controller.signal.aborted) setPdfStatus(status)
   }
 
   async function handleGenerate() {
-    if (!textReady || !tool?.generate || pending.current.has(activeTool)) return
-    const toolId = activeTool
-    pending.current.add(toolId)
-    setResources((previous) => ({ ...previous, [toolId]: { status: 'loading' } }))
+    if (!tool || generationBlocked || generatingTool.current || (tool.id === 'quiz' && submittingQuiz.current)) return
+    const { id: toolId } = tool
+    generatingTool.current = toolId
+    setGenerations((previous) => ({ ...previous, [toolId]: { data: previous[toolId]?.data, status: 'loading' } }))
 
     try {
       const data = await tool.generate(documentId)
       if (toolId === 'quiz') {
-        if (data.quiz_id == null || !Array.isArray(data.questions) || data.questions.length === 0
-          || data.questions.some((item) => typeof item.question !== 'string' || !Array.isArray(item.choices) || item.choices.length < 2)) {
-          throw new Error('This service didn’t return a quiz with scorable questions. Try generating it again.')
-        }
-        setQuizId(data.quiz_id)
+        if (!isScorableQuiz(data)) throw new Error('Invalid quiz response')
         setSelectedQuizAnswers({})
         setQuestionIndex(0)
         setQuizResult(null)
         setQuizSubmitError('')
       }
-      setResources((previous) => ({ ...previous, [toolId]: { status: 'success', data } }))
+      setPreparation('ready')
+      setGenerations((previous) => ({ ...previous, [toolId]: { status: 'success', data } }))
     } catch (error) {
-      setResources((previous) => ({ ...previous, [toolId]: { status: 'error', error } }))
+      const issue = getPreparationIssue(error)
+      if (issue) setPreparation(issue)
+      setGenerations((previous) => ({ ...previous, [toolId]: { data: previous[toolId]?.data, status: 'error', error } }))
     } finally {
-      pending.current.delete(toolId)
+      generatingTool.current = null
     }
   }
 
   function handleSelectQuizAnswer(questionIndex, choiceIndex) {
-    if (quizResult || pending.current.has('submit')) return
+    if (quizResult || submittingQuiz.current || generatingTool.current === 'quiz') return
 
     setSelectedQuizAnswers((previous) => ({
       ...previous,
@@ -153,8 +133,8 @@ function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigat
   }
 
   async function handleSubmitExam() {
-    if (!canSubmitQuiz || pending.current.has('submit')) return
-    pending.current.add('submit')
+    if (!canSubmitQuiz || submittingQuiz.current || generatingTool.current === 'quiz') return
+    submittingQuiz.current = true
     setQuizSubmitLoading(true)
     setQuizSubmitError('')
 
@@ -163,17 +143,19 @@ function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigat
         question_index: index,
         selected_choice_index: selectedQuizAnswers[index],
       }))
-      const result = await submitQuizAttempt(quizId, answers)
+      const result = await submitQuizAttempt(quizData.quiz_id, answers)
       setQuizResult(result)
     } catch (error) {
-      setQuizSubmitError(error.message)
+      setQuizSubmitError(error?.status === 429
+        ? 'Quiz grading is busy right now. Please wait a moment and try again.'
+        : 'We could not submit your quiz. Your answers are still here; please try again.')
     } finally {
-      pending.current.delete('submit')
+      submittingQuiz.current = false
       setQuizSubmitLoading(false)
     }
   }
 
-  if (documentResource.status === 'error' && !document) {
+  if (documentResource.status === 'error') {
     const missing = documentResource.error?.status === 404
     const signedOut = documentResource.error?.status === 401
     return (
@@ -195,25 +177,25 @@ function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigat
         {document ? <h1>{document.original_filename}</h1> : <h1 className="sp-visually-hidden">Document workspace</h1>}
         {!document && <ResourceState resource={documentResource} loading="Loading document…" variant="heading" />}
         {document && (
-          <div className="sp-document-meta">
-            <p role="status">{textReady ? 'Extracted text ready' : 'Extracted text unavailable'}</p>
-            {textReady && (
-              <RouteLink
-                className="sp-text-button"
-                to={textPreviewPath}
-                aria-current={viewingText ? 'page' : undefined}
-                onNavigate={focusTextPreview}
+          <>
+            <div className="sp-document-meta">
+              <p role="status">{textReady ? 'Ready to study' : preparationMessages[preparationStatus] ? 'Not ready to study' : 'Not prepared yet'}</p>
+              <button
+                className="sp-button sp-secondary"
+                type="button"
+                title="Opens in a new tab"
+                onClick={handleOpenPdf}
+                disabled={pdfStatus === 'loading'}
               >
-                View extracted text
-              </RouteLink>
-            )}
-          </div>
+                Open PDF
+              </button>
+              {pdfStatus === 'loading' && <p role="status">Opening PDF...</p>}
+            </div>
+            {pdfStatus === 'missing' && <PreparationNotice issue="missing" onUpload={onUpload} />}
+            {pdfOpenMessages[pdfStatus] && <p className="sp-error" role="alert">{pdfOpenMessages[pdfStatus]}</p>}
+          </>
         )}
       </header>
-
-      {document && documentResource.status === 'error' && (
-        <ResourceState resource={documentResource} failure="We couldn’t refresh the document status." />
-      )}
 
       {document && (
         <div className="sp-workspace">
@@ -224,64 +206,50 @@ function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigat
           </nav>
           <label className="sp-field sp-tool-picker">
             Study tool
-            <select value={viewingText ? '' : activeTool} onChange={(event) => onSelectTool(event.target.value)}>
-              {viewingText && <option value="" disabled>Choose a study tool</option>}
+            <select value={activeTool} onChange={(event) => onSelectTool(event.target.value)}>
               {tools.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
             </select>
           </label>
 
           <section className="sp-tool-panel" aria-labelledby="tool-title" key={activeTool}>
             <div className="sp-section-heading">
-              <div><h2 id="tool-title" tabIndex={-1} ref={toolHeading}>{tool?.label ?? 'Extracted text'}</h2>{!showQuiz && tool?.description && <p>{tool.description}</p>}</div>
-              {tool?.generate && !showQuiz && textReady && (
-                <button className="sp-button sp-primary" type="button" onClick={handleGenerate} disabled={resource?.status === 'loading'}>
-                  {resource?.status === 'loading' ? 'Generating…' : resource?.status === 'error' ? 'Try again' : `Generate ${tool.label.toLowerCase()}`}
+              <div><h2 id="tool-title">{tool?.label}</h2>{!showQuiz && tool?.description && <p>{tool.description}</p>}</div>
+              {tool && !generationBlocked && (
+                <button className="sp-button sp-primary" type="button" onClick={handleGenerate} disabled={anyGenerating || (activeTool === 'quiz' && quizSubmitLoading)}>
+                  {generating ? 'Generating…' : material ? `Regenerate ${tool.label.toLowerCase()}` : `Generate ${tool.label.toLowerCase()}`}
                 </button>
               )}
             </div>
 
-            {!textReady && (
-              <div className="sp-empty">
-                {extraction.status === 'missing' ? (
-                  <>
-                    <p role="alert">This PDF is missing. Please upload it again.</p>
-                    <button className="sp-button sp-primary" type="button" onClick={onUpload}>Upload PDF</button>
-                  </>
-                ) : (
-                  <>
-                    <h3>{extraction.status === 'empty' ? 'No selectable text found' : 'Extract text to start studying'}</h3>
-                    {extraction.status === 'idle' && <p>Extract the text from your PDF to use the study tools.</p>}
-                    {extracting && <p role="status">Extracting text from your PDF…</p>}
-                    {extraction.status === 'empty' && <p role="status">This PDF may be scanned. Upload a PDF with selectable text to use the study tools.</p>}
-                    {extraction.status === 'error' && <p role="alert">We couldn’t extract text from this PDF. Try again.</p>}
-                    <button className="sp-button sp-primary" type="button" onClick={handleExtractText} disabled={extracting}>
-                      {extracting ? 'Extracting…' : extraction.status === 'error' ? 'Retry extraction' : 'Extract text'}
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-            {textReady && viewingText && (
-              extraction.data ? <TextPreview data={extraction.data} /> : <ExtractedText documentId={documentId} />
+            {preparationMessages[preparationStatus] && !(preparationStatus === 'missing' && pdfStatus === 'missing') && (
+              <PreparationNotice issue={preparationStatus} onUpload={onUpload} />
             )}
 
-            {resource?.status === 'loading' && <Skeleton label={`Generating ${tool.label.toLowerCase()}…`} />}
-            {resource?.status === 'error' && <p className="sp-error" role="alert">{resource.error.message}</p>}
-
-            {resource?.status === 'success' && activeTool === 'summary' && (
-              <p className="sp-reading">{resource.data.summary || 'This PDF returned an empty summary.'}</p>
+            {tool && (!generating || materialsResource.status !== 'loading') && (
+              <ResourceState resource={materialsResource} loading="Loading saved study materials…" failure="We could not load your saved study materials." />
             )}
-            {resource?.status === 'success' && activeTool === 'flashcards' && (
-              resource.data.flashcards?.length ? (
+            {generating && (material
+              ? <p className="sp-status" role="status">{`Generating ${tool.label.toLowerCase()}…`}</p>
+              : <Skeleton label={`Generating ${tool.label.toLowerCase()}…`} />
+            )}
+            {generation?.status === 'error' && !getPreparationIssue(generation.error) && (
+              <p className="sp-error" role="alert">{generationErrorMessage(generation.error)}</p>
+            )}
+
+            {material && activeTool === 'summary' && (
+              <p className="sp-reading">{material.summary || 'This PDF returned an empty summary.'}</p>
+            )}
+            {material && activeTool === 'flashcards' && (
+              material.flashcards?.length ? (
                 <div className="sp-flashcards">
-                  {resource.data.flashcards.map((card, index) => (
+                  {material.flashcards.map((card, index) => (
                     <details key={`${card.question}-${index}`}><summary>{card.question}</summary><p>{card.answer}</p></details>
                   ))}
                 </div>
               ) : <p className="sp-muted">This PDF returned no flashcards.</p>
             )}
-            {resource?.status === 'success' && activeTool === 'roadmap' && (
-              resource.data.steps?.length ? <RoadmapSteps steps={resource.data.steps} /> : <p className="sp-muted">This PDF returned no study steps.</p>
+            {material && activeTool === 'roadmap' && (
+              material.steps?.length ? <RoadmapSteps steps={material.steps} /> : <p className="sp-muted">This PDF returned no study steps.</p>
             )}
 
             {showQuiz && (quizResult ? (
@@ -291,8 +259,6 @@ function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigat
                 <p>{quizResult.correct_answers} correct out of {quizResult.total_questions}</p>
                 <div className="sp-actions">
                   <button className="sp-button sp-primary" type="button" onClick={() => onNavigate('practice')}>View practice history</button>
-                  <RouteLink className="sp-button sp-secondary" to={textPreviewPath} onNavigate={focusTextPreview}>Review extracted text</RouteLink>
-                  <button className="sp-text-button" type="button" onClick={handleGenerate}>Generate another quiz</button>
                 </div>
               </div>
             ) : (
@@ -302,7 +268,7 @@ function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigat
                   <span role="status">{answeredCount} of {quiz.length} answered</span>
                 </div>
                 <progress aria-label="Questions answered" value={answeredCount} max={quiz.length} />
-                <fieldset className="sp-question" disabled={quizSubmitLoading}>
+                <fieldset className="sp-question" disabled={quizSubmitLoading || quizGenerating}>
                   <legend>{question.question}</legend>
                   {question.choices.map((choice, choiceIndex) => (
                     <label className="sp-choice" key={choiceIndex}>
@@ -314,9 +280,9 @@ function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigat
                 {quizSubmitError && <p className="sp-error" role="alert">{quizSubmitError}</p>}
                 {quizSubmitLoading && <p className="sp-status" role="status">Submitting quiz for grading…</p>}
                 <div className="sp-quiz-actions">
-                  <button className="sp-button sp-secondary" type="button" onClick={() => setQuestionIndex(questionIndex - 1)} disabled={questionIndex === 0 || quizSubmitLoading}>← Previous</button>
+                  <button className="sp-button sp-secondary" type="button" onClick={() => setQuestionIndex(questionIndex - 1)} disabled={questionIndex === 0 || quizSubmitLoading || quizGenerating}>← Previous</button>
                   {questionIndex + 1 < quiz.length
-                    ? <button className="sp-button sp-primary" type="button" onClick={() => setQuestionIndex(questionIndex + 1)} disabled={selectedQuizAnswers[questionIndex] === undefined}>Next →</button>
+                    ? <button className="sp-button sp-primary" type="button" onClick={() => setQuestionIndex(questionIndex + 1)} disabled={selectedQuizAnswers[questionIndex] === undefined || quizGenerating}>Next →</button>
                     : <button className="sp-button sp-primary" type="button" onClick={handleSubmitExam} disabled={!canSubmitQuiz}>{quizSubmitLoading ? 'Submitting…' : quizSubmitError ? 'Retry submission' : 'Submit quiz'}</button>}
                 </div>
               </div>
