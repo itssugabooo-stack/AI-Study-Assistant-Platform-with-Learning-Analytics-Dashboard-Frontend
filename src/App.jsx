@@ -13,10 +13,10 @@ import { logoutUser } from './api/auth'
 import { getToken, sessionExpiredEvent } from './api/client'
 import { authPath, documentPath, getLocation, navigateTo, readReturnPath, readRoute, subscribeToLocation, workspacePaths } from './routes'
 
-function redirectToSignIn() {
+function redirectToSignIn(state = null) {
   const url = new URL(getLocation())
   if (readRoute(url).workspace) {
-    navigateTo(authPath('login', url.pathname + url.search), { replace: true })
+    navigateTo(authPath('login', url.pathname + url.search), { replace: true, state })
   }
 }
 
@@ -48,14 +48,18 @@ function App() {
   }, [currentPage, location])
 
   useEffect(() => {
+    function handleSessionExpired() {
+      redirectToSignIn({ sessionExpired: true })
+    }
+
     function handleStorage(event) {
       if ((event.key === 'access_token' || event.key === null) && !getToken()) redirectToSignIn()
     }
 
-    window.addEventListener(sessionExpiredEvent, redirectToSignIn)
+    window.addEventListener(sessionExpiredEvent, handleSessionExpired)
     window.addEventListener('storage', handleStorage)
     return () => {
-      window.removeEventListener(sessionExpiredEvent, redirectToSignIn)
+      window.removeEventListener(sessionExpiredEvent, handleSessionExpired)
       window.removeEventListener('storage', handleStorage)
     }
   }, [])
@@ -110,6 +114,7 @@ function App() {
           : <LoginPage
               {...themeControls}
               mode={route.mode}
+              sessionExpired={route.mode === 'login' && window.history.state?.sessionExpired === true}
               onBack={openHome}
               onModeChange={(mode, options) => navigateTo(authPath(mode, returnPath), options)}
               onLogin={finishLogin}

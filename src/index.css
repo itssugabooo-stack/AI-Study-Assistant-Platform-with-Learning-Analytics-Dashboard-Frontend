@@ -374,6 +374,9 @@ p { line-height: 1.6; overflow-wrap: anywhere; }
 }
 .sp-auth-form { max-width: 405px; align-self: center; padding: 15px 0; }
 .sp-auth-form > p { margin-top: 8px; }
+.sp-auth-form .sp-auth-session-notice {
+  margin-top: 16px; padding: 10px 12px; border-radius: 8px; background: var(--wash); color: var(--ink);
+}
 .sp-auth-form form { display: grid; gap: 13px; margin-top: 23px; }
 .sp-auth-image { min-height: 430px; border-radius: 20px; background: #163d37 url("/images/study-desk.jpg") center 57% / cover; }
 

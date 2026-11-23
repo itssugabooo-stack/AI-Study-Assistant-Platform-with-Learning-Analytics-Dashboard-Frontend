@@ -14,7 +14,7 @@ function signInError(error) {
   return 'The sign-in service is unavailable. Try again in a moment.'
 }
 
-function LoginPage({ mode, onModeChange, onBack, onLogin, theme, onToggleTheme }) {
+function LoginPage({ mode, sessionExpired, onModeChange, onBack, onLogin, theme, onToggleTheme }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
@@ -133,6 +133,9 @@ function LoginPage({ mode, onModeChange, onBack, onLogin, theme, onToggleTheme }
         <section className="sp-auth-form">
           <h1>{isSignup ? 'Create an account' : 'Sign in'}</h1>
           <p className="sp-muted">{isSignup ? 'Start studying from your own PDFs.' : 'Open your study workspace.'}</p>
+          {sessionExpired && (
+            <p className="sp-auth-session-notice" role="alert">Your session expired. Sign in to continue.</p>
+          )}
           <form onSubmit={handleSubmit}>
             {isSignup && (
               <label className="sp-field">
