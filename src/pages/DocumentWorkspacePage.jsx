@@ -73,6 +73,7 @@ function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigat
   const quizGenerating = generations.quiz?.status === 'loading'
   // A completed generation takes precedence over any saved read, even if that read finishes later.
   const material = generation?.data ?? materialsResource.data?.[activeTool]
+  const regenerating = generating && Boolean(material)
   const quizData = generations.quiz?.data ?? materialsResource.data?.quiz
   const quiz = isScorableQuiz(quizData) ? quizData.questions : []
   const question = quiz[questionIndex]
@@ -215,9 +216,26 @@ function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigat
             <div className="sp-section-heading">
               <div><h2 id="tool-title">{tool?.label}</h2>{!showQuiz && tool?.description && <p>{tool.description}</p>}</div>
               {tool && !generationBlocked && (
-                <button className="sp-button sp-primary" type="button" onClick={handleGenerate} disabled={anyGenerating || (activeTool === 'quiz' && quizSubmitLoading)}>
-                  {generating ? 'Generating…' : material ? `Regenerate ${tool.label.toLowerCase()}` : `Generate ${tool.label.toLowerCase()}`}
-                </button>
+                <>
+                  <button
+                    className="sp-button sp-primary sp-generation-button"
+                    type="button"
+                    onClick={handleGenerate}
+                    aria-busy={generating}
+                    disabled={anyGenerating || (activeTool === 'quiz' && quizSubmitLoading)}
+                  >
+                    <span aria-hidden={generating}>
+                      {material ? 'Regenerate' : 'Generate'} {tool.label.toLowerCase()}
+                    </span>
+                    <span className="sp-generation-progress" aria-hidden={!generating}>
+                      {material && <span className="sp-generation-spinner" aria-hidden="true" />}
+                      {material ? 'Regenerating…' : 'Generating…'}
+                    </span>
+                  </button>
+                  <span className="sp-visually-hidden" role="status">
+                    {regenerating ? `Regenerating ${tool.label.toLowerCase()}…` : ''}
+                  </span>
+                </>
               )}
             </div>
 
@@ -228,9 +246,8 @@ function DocumentWorkspacePage({ documentId, activeTool, onSelectTool, onNavigat
             {tool && (!generating || materialsResource.status !== 'loading') && (
               <ResourceState resource={materialsResource} loading="Loading saved study materials…" failure="We could not load your saved study materials." />
             )}
-            {generating && (material
-              ? <p className="sp-status" role="status">{`Generating ${tool.label.toLowerCase()}…`}</p>
-              : <Skeleton label={`Generating ${tool.label.toLowerCase()}…`} />
+            {generating && !material && (
+              <Skeleton label={`Generating ${tool.label.toLowerCase()}…`} />
             )}
             {generation?.status === 'error' && !getPreparationIssue(generation.error) && (
               <p className="sp-error" role="alert">{generationErrorMessage(generation.error)}</p>

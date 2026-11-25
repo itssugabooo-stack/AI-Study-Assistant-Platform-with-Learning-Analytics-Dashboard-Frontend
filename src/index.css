@@ -76,6 +76,17 @@ p { line-height: 1.6; overflow-wrap: anywhere; }
 }
 .sp-primary { background: var(--accent); color: var(--on-accent); }
 .sp-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.sp-button.sp-generation-button { display: inline-grid; place-items: center; gap: 0; }
+.sp-generation-button > span { grid-area: 1 / 1; }
+.sp-generation-progress { display: inline-flex; align-items: center; gap: .45rem; }
+.sp-generation-button > [aria-hidden="true"] { visibility: hidden; }
+.sp-generation-button[aria-busy="true"] { opacity: 1; }
+.sp-generation-spinner {
+  flex: none; width: .9rem; height: .9rem; border: 2px solid currentColor;
+  border-inline-end-color: transparent; border-radius: 50%;
+}
+.sp-generation-button[aria-busy="true"] .sp-generation-spinner { animation: sp-generation-spin .8s linear infinite; }
+@keyframes sp-generation-spin { to { transform: rotate(1turn); } }
 .sp-secondary { background: var(--surface); border-color: var(--control); }
 .sp-secondary:hover:not(:disabled), .sp-plain:hover:not(:disabled) { background: var(--wash); }
 .sp-button.sp-theme-toggle {
