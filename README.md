@@ -1,4 +1,4 @@
-# Lumina Learning Analytics
+# StudyPilot
 
 Frontend for the AI-Powered Learning Analytics & Personalized Study Assistant.
 
@@ -14,25 +14,23 @@ npm run dev
 ```bash
 npm run lint
 npm run build
+node --test tests/*.test.mjs
 ```
-
-## Current frontend
-
-- Responsive student dashboard and analytics
-- Study-material library and upload dialog
-- Personalized quiz/practice center
-- Interactive AI Tutor chat interface
-- Personalized study roadmap
-- Mock data for development before backend integration
 
 ## Backend integration
 
-API calls should stay centralized in `src/services/api.js`. Set the FastAPI URL in
-an `.env` file:
+Set the FastAPI base URL and the guided study flag in an `.env.local` file:
 
 ```env
-VITE_API_URL=http://localhost:8000/api
+VITE_API_BASE_URL=http://localhost:8000
+VITE_GUIDED_STUDY_ENABLED=true
 ```
 
-Replace imports from `src/data/mockData.js` with data returned by the API service
-as endpoints become available.
+Guided study defaults to on in Vite development unless explicitly set to
+`false`. Other builds require `true` and a backend that serves the guided
+study and analytics endpoints. With guided study disabled, document opens and
+the dashboard keep their legacy behavior.
+
+Guided section and part links use `/library/:id?tool=study&section=:id&part=:id`.
+The Summary, Flashcards, Quiz, and Roadmap tools retain their explicit query
+links. Legacy `/library/:id/text` links always open Summary.

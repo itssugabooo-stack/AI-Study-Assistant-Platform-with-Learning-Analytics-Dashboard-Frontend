@@ -9,7 +9,7 @@ function showOpeningMessage(tab) {
   }
 }
 
-export async function openPdf(loadPdf, signal) {
+export async function openPdf(loadPdf, signal, page) {
   if (signal.aborted) return 'cancelled'
 
   // Reserve the tab in the click handler, before awaiting the authenticated fetch.
@@ -63,7 +63,8 @@ export async function openPdf(loadPdf, signal) {
     }
 
     objectUrl = URL.createObjectURL(pdf)
-    tab.location.replace(objectUrl)
+    const fragment = Number.isSafeInteger(page) && page > 0 ? `#page=${page}` : ''
+    tab.location.replace(objectUrl + fragment)
     opened = true
     return 'opened'
   } catch (error) {

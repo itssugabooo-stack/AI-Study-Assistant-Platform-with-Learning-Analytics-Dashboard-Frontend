@@ -4,6 +4,8 @@ import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import DocumentsPage from './pages/DocumentsPage'
 import DocumentWorkspacePage from './pages/DocumentWorkspacePage'
+import GuidedStudyPage from './pages/GuidedStudyPage'
+import StudyDashboardPage from './pages/StudyDashboardPage'
 import PracticePage from './pages/PracticePage'
 import StudyPlanPage from './pages/StudyPlanPage'
 import ErrorPage from './pages/ErrorPage'
@@ -11,6 +13,7 @@ import PageBoundary from './components/PageBoundary'
 import WorkspaceShell from './components/WorkspaceShell'
 import { logoutUser } from './api/auth'
 import { getToken, sessionExpiredEvent } from './api/client'
+import { guidedStudyEnabled } from './guidedStudyFlag'
 import { authPath, documentPath, getLocation, navigateTo, readReturnPath, readRoute, subscribeToLocation, workspacePaths } from './routes'
 
 function redirectToSignIn(state = null) {
@@ -127,13 +130,18 @@ function App() {
   let content
   switch (currentPage) {
     case 'dashboard':
-      content = <DashboardPage onNavigate={navigate} onUpload={openUpload} />
+      content = guidedStudyEnabled ? <StudyDashboardPage onUpload={openUpload} /> : <DashboardPage onNavigate={navigate} onUpload={openUpload} />
       break
     case 'library':
       content = <DocumentsPage showUploadInitially={Boolean(window.history.state?.showUpload)} />
       break
     case 'document-workspace':
-      content = <DocumentWorkspacePage
+      content = route.tool === 'study' ? <GuidedStudyPage
+        documentId={route.documentId}
+        sectionId={route.sectionId}
+        partId={route.partId}
+        onUpload={openUpload}
+      /> : <DocumentWorkspacePage
         documentId={route.documentId}
         activeTool={route.tool}
         onSelectTool={(tool) => openDocument(route.documentId, tool)}
@@ -142,7 +150,7 @@ function App() {
       />
       break
     case 'practice':
-      content = <PracticePage onNavigate={navigate} onOpenDocument={openDocument} />
+      content = <PracticePage onNavigate={navigate} onOpenDocument={(id) => openDocument(id, 'summary')} />
       break
     case 'study-plan':
       content = <StudyPlanPage onNavigate={navigate} onOpenDocument={openDocument} />

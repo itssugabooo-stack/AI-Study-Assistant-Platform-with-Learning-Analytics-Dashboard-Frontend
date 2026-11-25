@@ -119,6 +119,15 @@ test('an inaccessible placeholder document does not prevent PDF navigation', asy
   watch.mock.calls[0].arguments[0]()
 })
 
+test('opens a page on the authenticated blob and releases the unfragmented URL', async (t) => {
+  const { tab, watch, revokeUrl } = mockTab(t)
+  assert.equal(await openPdf(async () => pdf, new AbortController().signal, 12), 'opened')
+  assert.deepEqual(tab.location.replace.mock.calls[0].arguments, ['blob:https://study.test/pdf#page=12'])
+  tab.closed = true
+  watch.mock.calls[0].arguments[0]()
+  assert.deepEqual(revokeUrl.mock.calls[0].arguments, ['blob:https://study.test/pdf'])
+})
+
 test('a blocked popup does not request the file', async (t) => {
   const { open, watch } = mockTab(t)
   open.mock.mockImplementation(() => null)

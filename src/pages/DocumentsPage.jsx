@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getDocuments, uploadDocument } from '../api/documents'
 import ResourceState from '../components/ResourceState'
 import RouteLink from '../components/RouteLink'
+import { guidedStudyEnabled } from '../guidedStudyFlag'
 import { documentPath } from '../routes'
 import useResource from '../useResource'
 
@@ -153,7 +154,10 @@ function DocumentsPage({ showUploadInitially }) {
                 <h3>{doc.original_filename}</h3>
                 <p>{doc.has_extracted_text ? 'Text ready' : 'Text unavailable'}</p>
               </div>
-              <RouteLink className="sp-button sp-secondary" to={documentPath(doc.id)} aria-label={`Open workspace for ${doc.original_filename}`}>Open workspace <span aria-hidden="true">→</span></RouteLink>
+              <RouteLink className="sp-button sp-secondary" to={documentPath(doc.id)}
+                aria-label={`${guidedStudyEnabled ? 'Study' : 'Open workspace for'} ${doc.original_filename}`}>
+                {guidedStudyEnabled ? 'Study PDF' : 'Open workspace'} <span aria-hidden="true">&rarr;</span>
+              </RouteLink>
             </li>
           ))}
         </ul>

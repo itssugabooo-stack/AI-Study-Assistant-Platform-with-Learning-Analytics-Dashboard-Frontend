@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-export default function useResource(load, timingName) {
+export default function useResource(load, timingName, timeoutMs = 15_000) {
   const [attempt, setAttempt] = useState(0)
   const [result, setResult] = useState(null)
   const current = result?.attempt === attempt && result.load === load ? result : null
@@ -8,7 +8,7 @@ export default function useResource(load, timingName) {
   useEffect(() => {
     const controller = new AbortController()
     const startedAt = performance.now()
-    const timeout = setTimeout(() => controller.abort(new DOMException('The request timed out.', 'TimeoutError')), 15_000)
+    const timeout = setTimeout(() => controller.abort(new DOMException('The request timed out.', 'TimeoutError')), timeoutMs)
 
     async function request() {
       try {
@@ -32,7 +32,7 @@ export default function useResource(load, timingName) {
       clearTimeout(timeout)
       controller.abort()
     }
-  }, [attempt, load, timingName])
+  }, [attempt, load, timingName, timeoutMs])
 
   return {
     status: current?.status ?? 'loading',
